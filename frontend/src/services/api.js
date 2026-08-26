@@ -274,6 +274,24 @@ export async function getShareData(requestId) {
   }
 }
 
+// ── Cancel Emergency Request ────────────────────────────────────
+export async function cancelRequest(requestId) {
+  try {
+    const res = await fetch(`${API_BASE}/requests/${requestId}/cancel`, {
+      method: 'PATCH',
+      headers: getAuthHeaders()
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to cancel request.');
+    }
+    return data;
+  } catch (err) {
+    console.error("[API] cancelRequest error:", err);
+    throw err;
+  }
+}
+
 // ── WebSocket Subscription ──────────────────────────────────────
 export function subscribeToRequestWebsocket(requestId, onEvent) {
   const token = localStorage.getItem('token');
@@ -394,6 +412,36 @@ export async function getDonorScreening(donorId) {
     return null;
   } catch (err) {
     console.warn('[API] getDonorScreening error:', err);
+    return null;
+  }
+}
+
+export async function withdrawDonorMatch(matchId) {
+  try {
+    const res = await fetch(`${API_BASE}/donors/matches/${matchId}/withdraw`, {
+      method: 'PATCH',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+    const errData = await res.json().catch(() => ({ detail: 'Withdrawal failed' }));
+    throw new Error(errData.detail || 'Withdrawal failed');
+  } catch (err) {
+    console.error("[API] withdrawDonorMatch fetch error:", err);
+    throw err;
+  }
+}
+
+export async function registerDeviceToken(token, platform = "web") {
+  try {
+    const res = await fetch(`${API_BASE}/notifications/device-token`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ token, platform })
+    });
+    if (res.ok) return await res.json();
+    return null;
+  } catch (err) {
+    console.warn('[API] registerDeviceToken error:', err);
     return null;
   }
 }

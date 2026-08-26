@@ -265,3 +265,43 @@ body {
 .map-overlay-gradient-bottom {
   background: linear-gradient(to top, rgba(5, 5, 5, 0.8) 0%, transparent 100%);
 }
+
+/* ── Phase 2: Medical Heartbeat ECG ─────────────────────── */
+@keyframes ecgDraw {
+  from { stroke-dasharray: 0 600; }
+  to   { stroke-dasharray: 600 0; }
+}
+
+@keyframes medicalPing {
+  0%   { transform: scale(0.9); opacity: 0.8; }
+  50%  { transform: scale(1.15); opacity: 0.4; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+@keyframes routeFill {
+  from { stroke-dashoffset: 100%; }
+  to   { stroke-dashoffset: 0%; }
+}
+
+@keyframes donorDotSlide {
+  from { left: 0%; }
+  to   { left: 100%; }
+}
+
+/* Tabular numerics for ETA countdown */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Utility for blurred backdrop on cards */
+.tracking-card-blur {
+  backdrop-filter: blur(32px) saturate(1.5);
+  -webkit-backdrop-filter: blur(32px) saturate(1.5);
+}
+
+/* Subtle pulsing border for donation phase */
+@keyframes borderPulse {
+  0%, 100% { border-color: rgba(16, 185, 129, 0.25); }
+  50%       { border-color: rgba(16, 185, 129, 0.55); }
+}
+.animate-border-pulse {
+  animation: borderPulse 2s ease-in-out infinite;
+}

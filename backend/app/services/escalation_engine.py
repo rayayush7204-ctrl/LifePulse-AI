@@ -31,8 +31,8 @@ class EscalationEngine:
         and fans out Ring 1 notifications to real registered donors.
         """
         req_id = request["id"]
-        req_lat = request.get("latitude", 37.7631)
-        req_lon = request.get("longitude", -122.4578)
+        req_lat = request["latitude"]
+        req_lon = request["longitude"]
         
         # O(N) Optimization: SQL-level bounding box filter before fetching into Python
         bbox = calculate_bounding_box(req_lat, req_lon, initial_radius_km)
@@ -147,8 +147,8 @@ class EscalationEngine:
         """
         Finds nearest blood banks with available stock of the requested blood group.
         """
-        req_lat = request.get("latitude", 37.7631)
-        req_lon = request.get("longitude", -122.4578)
+        req_lat = request["latitude"]
+        req_lon = request["longitude"]
         req_bt = request.get("blood_type", "O-")
         
         # Pre-filter hospitals within a reasonable radius (e.g., 100km max for a fallback)

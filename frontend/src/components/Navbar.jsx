@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Droplet, Activity, ShieldCheck, HeartHandshake, Building2, Smartphone, Heart, Sparkles, Wifi, WifiOff, Bell, LogIn, LogOut, User, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { requestFirebaseNotificationPermission, onMessageListener } from '../firebase';
+import { registerDeviceToken } from '../services/api';
 
 export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenDonorPortal }) {
   const { user, hasDonorProfile, logout, setShowAuthModal } = useAuth();
@@ -21,6 +23,26 @@ export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenD
   useEffect(() => {
     if (activeRequest) setNotifications(prev => prev + 1);
   }, [activeRequest]);
+
+  useEffect(() => {
+    if (user) {
+      onMessageListener().then((payload) => {
+        setNotifications(prev => prev + 1);
+        console.log("Foreground message:", payload);
+      }).catch(err => console.log('failed: ', err));
+    }
+  }, [user]);
+
+  const handleEnableNotifications = async () => {
+    const token = await requestFirebaseNotificationPermission();
+    if (token) {
+      await registerDeviceToken(token);
+      alert("Push notifications enabled!");
+    } else {
+      alert("Notification permission denied or failed.");
+    }
+    setShowUserMenu(false);
+  };
 
   // Close user menu on outside click
   useEffect(() => {
@@ -193,6 +215,13 @@ export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenD
                           >
                             <Heart className="w-3.5 h-3.5" />
                             {hasDonorProfile ? 'My Donor Profile' : 'Register as Donor'}
+                          </button>
+                          <button
+                            onClick={handleEnableNotifications}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-[#A1A1A6] hover:text-white hover:bg-white/5 transition-colors"
+                          >
+                            <Bell className="w-3.5 h-3.5" />
+                            Enable Notifications
                           </button>
                           <button
                             onClick={() => { logout(); setShowUserMenu(false); }}

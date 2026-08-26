@@ -42,6 +42,8 @@ class MatchStatusEnum(str, Enum):
     DECLINED = "DECLINED"
     EN_ROUTE = "EN_ROUTE"
     ARRIVED = "ARRIVED"
+    CANCELLED = "CANCELLED"
+    WITHDRAWN = "WITHDRAWN"
 
     def __str__(self): return self.value
 
@@ -118,8 +120,8 @@ class BloodRequestCreate(BaseModel):
     donation_type: DonationTypeEnum = DonationTypeEnum.WHOLE_BLOOD
     units_needed: int = Field(2, ge=1, le=10)
     urgency_level: UrgencyLevelEnum = UrgencyLevelEnum.CRITICAL
-    latitude: float = Field(37.7631, json_schema_extra={"example": 37.7631})
-    longitude: float = Field(-122.4578, json_schema_extra={"example": -122.4578})
+    latitude: float = Field(..., json_schema_extra={"example": 37.7631})
+    longitude: float = Field(..., json_schema_extra={"example": -122.4578})
     notes: Optional[str] = Field("Urgent emergency request.", json_schema_extra={"example": "Urgent trauma surgery, ICU bed 4"})
     requester_user_id: Optional[str] = None
 
@@ -180,16 +182,16 @@ class BloodRequestCreate(BaseModel):
 
     @field_validator("latitude", "longitude", mode="before")
     @classmethod
-    def normalize_coordinates(cls, v: Any, info) -> float:
+    def validate_coordinates(cls, v: Any, info) -> float:
         try:
             val = float(v)
-            if info.field_name == "latitude" and -90 <= val <= 90:
-                return val
-            if info.field_name == "longitude" and -180 <= val <= 180:
-                return val
         except (ValueError, TypeError):
-            pass
-        return 37.7631 if info.field_name == "latitude" else -122.4578
+            raise ValueError(f"{info.field_name} must be a valid number, got: {v!r}")
+        if info.field_name == "latitude" and not (-90 <= val <= 90):
+            raise ValueError(f"latitude must be between -90 and 90, got: {val}")
+        if info.field_name == "longitude" and not (-180 <= val <= 180):
+            raise ValueError(f"longitude must be between -180 and 180, got: {val}")
+        return val
 
 class ParsedRequestAIInput(BaseModel):
     raw_text: str = Field(..., json_schema_extra={"example": "Need 2 units O negative blood at UCSF hospital immediately for surgery!"})
@@ -290,3 +292,24 @@ class DonorLocationUpdateResponse(BaseModel):
     donor: Optional[Dict[str, Any]]
     location_updates: List[Dict[str, Any]]
 
+# --- NOTIFICATION SCHEMAS ---
+
+class DeviceTokenCreate(BaseModel):
+    token: str
+    platform: Optional[str] = "web"
+
+class NotificationStatusEnum(str, Enum):
+    SENT = "SENT"
+    FAILED = "FAILED"
+    INVALID_TOKEN = "INVALID_TOKEN"
+
+class NotificationRecord(BaseModel):
+    id: str
+    user_id: str
+    type: str
+    title: str
+    body: str
+    request_id: Optional[str] = None
+    match_id: Optional[str] = None
+    status: NotificationStatusEnum
+    created_at: datetime

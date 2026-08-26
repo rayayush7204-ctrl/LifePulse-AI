@@ -39,6 +39,15 @@ class MatchingEngine:
             if patient_blood_type in recipients:
                 compatible.append(donor_type)
         return compatible
+    @classmethod
+    def _is_cancelled(cls, request_id: str) -> bool:
+        """Re-reads persisted request status to check if cancelled. Used as a concurrency guard."""
+        with SessionLocal() as session:
+            repo = DatabaseRepository(session)
+            request = repo.get_request(request_id)
+            if not request:
+                return True
+            return request.get("status") == "CANCELLED"
 
     @classmethod
     async def run_matching_cycle(cls, request_id: str):
@@ -51,6 +60,11 @@ class MatchingEngine:
         # Wait for frontend to connect before streaming AI events, fallback after 5s
         await manager.wait_for_connection(request_id, timeout=5.0)
         
+        # ── Cancellation guard: before AI processing ────────────
+        if cls._is_cancelled(request_id):
+            logger.info(f"[Matching {request_id}] Cancelled before AI processing. Aborting.")
+            return
+
         # ── Phase: AI Processing ────────────────────────────────
         await EmergencyStateMachine.transition(
             request_id, 
@@ -60,6 +74,11 @@ class MatchingEngine:
         )
         await asyncio.sleep(1.2)  # Cinematic pacing
 
+        # ── Cancellation guard: before Validating ───────────────
+        if cls._is_cancelled(request_id):
+            logger.info(f"[Matching {request_id}] Cancelled before validation. Aborting.")
+            return
+
         # ── Phase: Validating ───────────────────────────────────
         await EmergencyStateMachine.transition(
             request_id, 
@@ -68,6 +87,11 @@ class MatchingEngine:
             {"step": "validating"}
         )
         await asyncio.sleep(1.0)
+
+        # ── Cancellation guard: before Searching ────────────────
+        if cls._is_cancelled(request_id):
+            logger.info(f"[Matching {request_id}] Cancelled before searching. Aborting.")
+            return
 
         # ── Phase: Searching ────────────────────────────────────
         await EmergencyStateMachine.transition(
@@ -90,7 +114,13 @@ class MatchingEngine:
             req_blood = request["blood_type"]
 
             # 1. Fetch all donors (simulate "Found X donors")
-            all_donors = repo.list_donors({"is_active": True, "is_available": True})
+            all_donors_raw = repo.list_donors({"is_active": True, "is_available": True})
+            
+            # Exclude donors who have already matched (withdrawn, active, or declined)
+            existing_matches = repo.get_matches_for_request(request_id)
+            excluded_donor_ids = {m["donor_id"] for m in existing_matches if m.get("status") not in ["CANCELLED"]}
+            all_donors = [d for d in all_donors_raw if d["id"] not in excluded_donor_ids]
+
             total_count = len(all_donors)
             
             await EmergencyStateMachine.transition(
@@ -246,6 +276,11 @@ class MatchingEngine:
 
             ranked_donors = cls._rank_donors(eligible_donors)
 
+            # ── Cancellation guard: before saving matches ───────
+            if cls._is_cancelled(request_id):
+                logger.info(f"[Matching {request_id}] Cancelled before saving matches. Aborting.")
+                return
+
             # 4. Save Matches to DB
             for rank, donor in enumerate(ranked_donors):
                 # Put top 5 in Ring 1, next 5 in Ring 2, etc.
@@ -283,6 +318,11 @@ class MatchingEngine:
                 "label": f"Broadcasting Ring 1 to top {min(5, len(ranked_donors))} donors..."
             }
         )
+
+        # ── Cancellation guard: before Ring 1 escalation ───────
+        if cls._is_cancelled(request_id):
+            logger.info(f"[Matching {request_id}] Cancelled before ring escalation. Aborting.")
+            return
 
         # Transition to Ring 1 state
         await EmergencyStateMachine.transition(

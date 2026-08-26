@@ -50,13 +50,21 @@ async def test_full_emergency_request_flow():
         assert res.status_code == 200
         data = res.json()
         req_id = data["request"]["id"]
-        assert data["matching_summary"]["eligible_count"] >= 1
+        # The engine runs asynchronously; initial count is 0
+        assert data["matching_summary"]["eligible_count"] == 0
 
-        # 2. Fetch Request Status
-        status_res = await ac.get(f"/api/v1/requests/{req_id}")
-        assert status_res.status_code == 200
-        matches = status_res.json()["matches"]
-        assert len(matches) >= 1
+        # 2. Wait and Poll for Request Status
+        import asyncio
+        matches = []
+        for _ in range(40):  # Poll up to 20 seconds (wait_for_connection + cinematic sleeps)
+            status_res = await ac.get(f"/api/v1/requests/{req_id}")
+            assert status_res.status_code == 200
+            matches = status_res.json()["matches"]
+            if len(matches) >= 1:
+                break
+            await asyncio.sleep(0.5)
+            
+        assert len(matches) >= 1, "Matching engine did not find matches in time."
         match_id = matches[0]["match_id"]
 
         # 3. Donor Accepts Match
@@ -68,9 +76,14 @@ async def test_full_emergency_request_flow():
         assert respond_res.status_code == 200
         assert respond_res.json()["match"]["status"] == "ACCEPTED"
 
-        # 4. Check Updated Status
-        check_res = await ac.get(f"/api/v1/requests/{req_id}")
-        assert check_res.json()["request"]["status"] == "FULFILLED"
+        # 4. Wait for Simulation to complete (Terminal state is CLOSED)
+        for _ in range(20):  # Poll up to 10 seconds for simulation to finish
+            check_res = await ac.get(f"/api/v1/requests/{req_id}")
+            if check_res.json()["request"]["status"] == "CLOSED":
+                break
+            await asyncio.sleep(0.5)
+        
+        assert check_res.json()["request"]["status"] == "CLOSED"
 
         # 5. Check Audit Trail
         audit_res = await ac.get(f"/api/v1/requests/{req_id}/audit")

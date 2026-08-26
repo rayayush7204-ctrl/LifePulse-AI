@@ -93,8 +93,8 @@ class EmergencyRequestDB(Base):
     donation_type = Column(String(50), default="WHOLE_BLOOD")
     units_needed = Column(Integer, default=2)
     urgency_level = Column(String(50), default="CRITICAL")
-    latitude = Column(Float, nullable=False, default=37.7631)
-    longitude = Column(Float, nullable=False, default=-122.4578)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
     notes = Column(Text, default="Urgent emergency request.")
     status = Column(String(50), default="PENDING")
     created_at = Column(DateTime, default=utc_now)
@@ -168,3 +168,26 @@ class AuditLogDB(Base):
     score = Column(Float, nullable=True)
     reasons_json = Column(JSON, default=list)
     timestamp = Column(DateTime, default=utc_now)
+
+class FCMDeviceTokenDB(Base):
+    __tablename__ = "fcm_device_tokens"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    user_id = Column(String(64), ForeignKey("users.id"), index=True, nullable=False)
+    token = Column(String(512), nullable=False, unique=True, index=True)
+    platform = Column(String(50), default="web")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+class NotificationRecordDB(Base):
+    __tablename__ = "notifications"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    user_id = Column(String(64), ForeignKey("users.id"), index=True, nullable=False)
+    type = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    request_id = Column(String(64), ForeignKey("emergency_requests.id"), nullable=True)
+    match_id = Column(String(64), ForeignKey("donor_matches.id"), nullable=True)
+    status = Column(String(50), default="SENT")
+    created_at = Column(DateTime, default=utc_now)

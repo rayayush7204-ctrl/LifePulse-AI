@@ -14,40 +14,77 @@ import { ToastProvider, useToast } from './components/NotificationToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getCurrentPosition } from './services/geolocation';
 
-// ── GPS Context ─────────────────────────────────────────────────
+// ── GPS State Model ─────────────────────────────────────────────
+export const GPS_STATES = {
+  IDLE: 'IDLE',
+  REQUESTING: 'REQUESTING',
+  AVAILABLE: 'AVAILABLE',
+  DENIED: 'DENIED',
+  UNAVAILABLE: 'UNAVAILABLE',
+  TIMEOUT: 'TIMEOUT',
+  ERROR: 'ERROR',
+};
+
 const GPSContext = createContext(null);
 export function useGPS() {
   return useContext(GPSContext);
 }
 
+function isValidCoordinate(lat, lon) {
+  return (
+    typeof lat === 'number' && typeof lon === 'number' &&
+    isFinite(lat) && isFinite(lon) &&
+    lat >= -90 && lat <= 90 &&
+    lon >= -180 && lon <= 180
+  );
+}
+
 function GPSProvider({ children }) {
   const [location, setLocation] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const { addToast } = useToast();
+  const [gpsState, setGpsState] = useState(GPS_STATES.IDLE);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    setGpsState(GPS_STATES.REQUESTING);
+    setErrorMessage(null);
     try {
       const pos = await getCurrentPosition();
-      setLocation(pos);
-      setError(null);
+      if (isValidCoordinate(pos.latitude, pos.longitude)) {
+        setLocation(pos);
+        setGpsState(GPS_STATES.AVAILABLE);
+        setErrorMessage(null);
+      } else {
+        setLocation(null);
+        setGpsState(GPS_STATES.ERROR);
+        setErrorMessage('Invalid coordinates received from device.');
+      }
     } catch (err) {
-      const msg = err.message || 'Location unavailable';
-      setError(msg);
-      setLocation({ latitude: 37.7631, longitude: -122.4578 }); // FIXED: Silently fallback to SF for local testing
-      addToast({ title: 'GPS Fallback Enabled', message: 'Browser location failed. Using San Francisco for testing.', type: 'error' });
-    } finally {
-      setLoading(false);
+      setLocation(null);
+      if (err.code === 1) {
+        // GeolocationPositionError.PERMISSION_DENIED
+        setGpsState(GPS_STATES.DENIED);
+        setErrorMessage('Location permission was denied.');
+      } else if (err.code === 2) {
+        // GeolocationPositionError.POSITION_UNAVAILABLE
+        setGpsState(GPS_STATES.UNAVAILABLE);
+        setErrorMessage('Position unavailable. Check your device location settings.');
+      } else if (err.code === 3) {
+        // GeolocationPositionError.TIMEOUT
+        setGpsState(GPS_STATES.TIMEOUT);
+        setErrorMessage('Location request timed out. Try again.');
+      } else {
+        setGpsState(GPS_STATES.ERROR);
+        setErrorMessage(err.message || 'Location unavailable.');
+      }
     }
-  }, [addToast]);
+  }, []);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   return (
-    <GPSContext.Provider value={{ location, error, loading, refresh }}>
+    <GPSContext.Provider value={{ location, gpsState, errorMessage, refresh }}>
       {children}
     </GPSContext.Provider>
   );
@@ -84,6 +121,13 @@ function AppContent() {
     else navigate(`/${tab}`);
   };
 
+  // Auto-close the donor portal modal on any route change so it doesn't
+  // block the tracker screen after navigating from a previous demo session.
+  useEffect(() => {
+    setIsDonorPortalOpen(false);
+    setSimulatedMatchId(null);
+  }, [location.pathname]);
+
   const handleRequestSubmitted = (response) => {
     setActiveRequestData(response);
     navigate(`/tracker/${response.request.id}`);
@@ -116,7 +160,8 @@ function AppContent() {
         onOpenDonorPortal={() => setIsDonorPortalOpen(true)}
       />
 
-      <main className="flex-1 w-full mx-auto pb-24 lg:pb-8 relative">
+      <main className="flex-1 w-full mx-auto relative min-h-0 overflow-y-auto">
+
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={
@@ -125,7 +170,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 exit={{ opacity: 0, y: -15, filter: 'blur(4px)' }}
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <ActionHubHome
                   onNavigateTab={handleSetActiveTab}
@@ -140,7 +185,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 exit={{ opacity: 0, y: -15, filter: 'blur(4px)' }}
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <EmergencyRequestForm onRequestSubmitted={handleRequestSubmitted} />
               </motion.div>
@@ -148,19 +193,19 @@ function AppContent() {
             
             <Route path="/tracker/:id?" element={
               <motion.div
-                initial={{ opacity: 0, filter: 'blur(12px)', scale: 1.02 }}
-                animate={{ opacity: 1, filter: 'blur(0px)', scale: 1 }}
-                exit={{ opacity: 0, filter: 'blur(8px)', scale: 0.98 }}
-                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                initial={{ opacity: 0, scale: 1.02 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                 className="absolute inset-0 z-50 bg-[#050505]"
               >
                 <RequesterDashboard
                   requestId={activeRequestData?.request?.id}
-                  requestData={activeRequestData}
                   onSimulateDonorAction={handleSimulateDonorAction}
                 />
               </motion.div>
             } />
+
             
             <Route path="/donor-portal" element={
               <motion.div
@@ -168,7 +213,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 exit={{ opacity: 0, y: -15, filter: 'blur(4px)' }}
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <DonorPortalHub
                   onSimulateAlert={() => setIsDonorPortalOpen(true)}
@@ -182,7 +227,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 exit={{ opacity: 0, y: -15, filter: 'blur(4px)' }}
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <HospitalInventoryView />
               </motion.div>
@@ -194,7 +239,7 @@ function AppContent() {
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
                 exit={{ opacity: 0, y: -15, filter: 'blur(4px)' }}
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
+                className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <AuditLogViewer activeRequestId={activeRequestData?.request?.id} />
               </motion.div>

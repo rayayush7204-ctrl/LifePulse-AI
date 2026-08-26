@@ -1,409 +1,423 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import { wsClient } from '../services/WebSocketClient';
-import LiveTimeline from './LiveTimeline';
+/**
+ * EmergencyLiveTracker — Phase 2 Orchestrator
+ *
+ * Responsibilities (slim):
+ *  - Receives requestData + onSimulateDonor props
+ *  - Delegates ALL WebSocket/state logic to useTrackingSession
+ *  - Composes: TrackingMap / TrackingCard / ArrivalOverlay / SummaryCard
+ *  - Keeps SearchProgressStream + LiveTimeline from Phase 1 intact
+ *
+ * No state management here. No WS subscriptions here.
+ * This component is purely presentational — it assembles sub-components.
+ */
+import React, { useMemo, useCallback, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
+import { Wifi, WifiOff, XCircle, AlertTriangle, Home, Loader2, Ban } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { cancelRequest, getRequestStatus } from '../services/api';
+import { useToast } from './NotificationToast';
+
+import useTrackingSession from '../hooks/useTrackingSession';
+import TrackingMap        from './tracking/TrackingMap';
+import TrackingCard       from './tracking/TrackingCard';
+import ArrivalOverlay     from './tracking/ArrivalOverlay';
+import SummaryCard        from './tracking/SummaryCard';
+import LiveTimeline       from './LiveTimeline';
 import SearchProgressStream from './SearchProgressStream';
-import { Activity, User, Phone, CheckCircle2, MapPin, Wifi, WifiOff, Radio } from 'lucide-react';
 
-// ── Custom Markers ──────────────────────────────────────────────
-const createCustomMarker = (color, isAnimated = false, size = 14) => {
-  return L.divIcon({
-    className: 'custom-leaflet-marker',
-    html: `<div style="background-color: ${color}; width: ${size}px; height: ${size}px; border-radius: 50%; border: 2px solid #050505; box-shadow: 0 0 16px ${color}; ${isAnimated ? 'animation: pulse 1s infinite alternate;' : ''}"></div>`,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2]
-  });
-};
-
-// Nearby donor dot (small, pulsing blue)
-const createNearbyDonorMarker = (isEligible = false) => {
-  const color = isEligible ? '#3b82f6' : '#64748b';
-  return L.divIcon({
-    className: 'custom-leaflet-marker',
-    html: `<div class="animate-donor-appear" style="
-      background-color: ${color}; 
-      width: 8px; height: 8px; 
-      border-radius: 50%; 
-      box-shadow: 0 0 12px ${color}80;
-      opacity: 0.7;
-    "></div>`,
-    iconSize: [8, 8],
-    iconAnchor: [4, 4]
-  });
-};
-
-// Accepted donor (larger green, glowing)
-const createAcceptedDonorMarker = () => {
-  return L.divIcon({
-    className: 'custom-leaflet-marker',
-    html: `<div class="animate-accepted-glow" style="
-      background-color: #10b981; 
-      width: 18px; height: 18px; 
-      border-radius: 50%; 
-      border: 3px solid #050505;
-      box-shadow: 0 0 24px rgba(16, 185, 129, 0.8);
-    "></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9]
-  });
-};
-
-const hospitalIcon = createCustomMarker('#e50914', false, 16);
-const donorTrackingIcon = createCustomMarker('#10b981', true, 14);
-
-// ── Map Auto-Center Component ───────────────────────────────────
-function MapAutoCenter({ center, zoom }) {
-  const map = useMap();
-  useEffect(() => {
-    if (center) {
-      map.flyTo(center, zoom || map.getZoom(), { duration: 1.5 });
-    }
-  }, [center, zoom]);
-  return null;
-}
-
-// ── Animated Search Circles ─────────────────────────────────────
-function SearchCircles({ center, isSearching }) {
-  const [circles, setCircles] = useState([]);
-  
-  useEffect(() => {
-    if (!isSearching) {
-      setCircles([]);
-      return;
-    }
-    
-    // Spawn a new expanding circle every 2 seconds
-    const interval = setInterval(() => {
-      const id = Date.now();
-      setCircles(prev => [...prev.slice(-3), { id, radius: 200 }]);
-    }, 2000);
-    
-    // Expand existing circles
-    const expandInterval = setInterval(() => {
-      setCircles(prev => prev
-        .map(c => ({ ...c, radius: c.radius + 150 }))
-        .filter(c => c.radius < 8000)
-      );
-    }, 100);
-    
-    return () => {
-      clearInterval(interval);
-      clearInterval(expandInterval);
-    };
-  }, [isSearching]);
-
+// ── Reconnecting banner ──────────────────────────────────────────────────
+const ReconnectingBanner = React.memo(function ReconnectingBanner({ visible }) {
   return (
-    <>
-      {circles.map(c => (
-        <Circle
-          key={c.id}
-          center={center}
-          radius={c.radius}
-          pathOptions={{
-            color: '#3b82f6',
-            fillColor: '#3b82f6',
-            fillOpacity: Math.max(0.01, 0.15 - (c.radius / 8000) * 0.15),
-            weight: Math.max(0.5, 1.5 - (c.radius / 8000) * 1.5),
-            opacity: Math.max(0.1, 0.6 - (c.radius / 8000) * 0.6),
-          }}
-        />
-      ))}
-    </>
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0  }}
+          exit={  { opacity: 0, y: -20 }}
+          className="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2
+                     bg-amber-900/80 px-3 py-1.5 rounded-full backdrop-blur-md pointer-events-none"
+        >
+          <WifiOff className="w-3 h-3 text-amber-400 animate-pulse" />
+          <span className="text-xs font-bold text-amber-300">Reconnecting…</span>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
-}
+});
 
-// ── Main Component ──────────────────────────────────────────────
-export default function EmergencyLiveTracker({ requestData, onSimulateDonor }) {
-  const [requestState, setRequestState] = useState(requestData?.request?.status || 'CREATED');
-  const [hudData, setHudData] = useState({ step: 'initialization' });
-  const [events, setEvents] = useState([]);
-  const [donorLocation, setDonorLocation] = useState(null);
-  const [eta, setEta] = useState(null);
-  const [distance, setDistance] = useState(null);
-  const [acceptedDonor, setAcceptedDonor] = useState(null);
-  
-  // New dispatch state
-  const [nearbyDonorMarkers, setNearbyDonorMarkers] = useState([]);
-  const [searchProgress, setSearchProgress] = useState(null);
-  const [ringCountdown, setRingCountdown] = useState(null);
-  const [connectionState, setConnectionState] = useState('disconnected');
-  const [mapCenter, setMapCenter] = useState(null);
-
-  const reqId = requestData?.request?.id;
-  const hospitalLoc = [requestData?.request?.latitude || 37.7631, requestData?.request?.longitude || -122.4578];
-
-  const isSearching = ['CREATED', 'AI_PROCESSING', 'VALIDATING', 'SEARCHING', 'MATCHING', 'RING1', 'RING2', 'WAITING'].includes(requestState);
-  const isTracking = ['TRACKING', 'ARRIVING', 'ARRIVED'].includes(requestState);
-  const isDonorAccepted = ['DONOR_ACCEPTED', 'TRACKING', 'ARRIVING', 'ARRIVED', 'DONATION_STARTED', 'DONATION_COMPLETED'].includes(requestState);
-
-  useEffect(() => {
-    if (!reqId) return;
-
-    wsClient.connect(reqId);
-
-    const handleStateTransition = (data) => {
-      setRequestState(data.state);
-      setHudData(data.metadata || {});
-      setEvents(prev => [{
-        id: Date.now().toString(),
-        state: data.state,
-        message: data.message,
-        timestamp: new Date().toLocaleTimeString()
-      }, ...prev]);
-    };
-
-    const handleGpsUpdate = (data) => {
-      setDonorLocation([data.lat, data.lng]);
-      setEta(data.eta_minutes);
-      setDistance(data.distance_km);
-    };
-
-    const handleDonorStatus = (data) => {
-      if (data?.match?.status === "ACCEPTED") {
-        setAcceptedDonor(data.match);
-      }
-    };
-
-    // New dispatch event handlers
-    const handleSearchProgress = (data) => {
-      setSearchProgress(data.data || data);
-    };
-
-    const handleDonorMarkers = (data) => {
-      const markersData = data.data || data;
-      setNearbyDonorMarkers(markersData.markers || []);
-    };
-
-    const handleRingCountdown = (data) => {
-      setRingCountdown(data.data || data);
-    };
-
-    const handleConnectionState = (data) => {
-      setConnectionState(data.state);
-    };
-
-    const handleDonorLocationUpdated = (data) => {
-      const loc = data.data || data;
-      if (loc.latitude && loc.longitude) {
-        setDonorLocation([loc.latitude, loc.longitude]);
-        setEta(loc.eta_minutes);
-        setDistance(loc.distance_km);
-        if (loc.donor_name || loc.donor_blood_type) {
-          setAcceptedDonor(prev => ({
-            ...prev,
-            donor_name: loc.donor_name || prev?.donor_name,
-            donor_blood_type: loc.donor_blood_type || prev?.donor_blood_type
-          }));
-        }
-      }
-    };
-
-    wsClient.on('STATE_TRANSITION', handleStateTransition);
-    wsClient.on('GPS_UPDATE', handleGpsUpdate);
-    wsClient.on('DONOR_STATUS_CHANGED', handleDonorStatus);
-    wsClient.on('SEARCH_PROGRESS', handleSearchProgress);
-    wsClient.on('DONOR_MARKERS', handleDonorMarkers);
-    wsClient.on('RING_COUNTDOWN', handleRingCountdown);
-    wsClient.on('CONNECTION_STATE', handleConnectionState);
-    wsClient.on('DONOR_LOCATION_UPDATED', handleDonorLocationUpdated);
-
-    return () => {
-      wsClient.off('STATE_TRANSITION', handleStateTransition);
-      wsClient.off('GPS_UPDATE', handleGpsUpdate);
-      wsClient.off('DONOR_STATUS_CHANGED', handleDonorStatus);
-      wsClient.off('SEARCH_PROGRESS', handleSearchProgress);
-      wsClient.off('DONOR_MARKERS', handleDonorMarkers);
-      wsClient.off('RING_COUNTDOWN', handleRingCountdown);
-      wsClient.off('CONNECTION_STATE', handleConnectionState);
-      wsClient.off('DONOR_LOCATION_UPDATED', handleDonorLocationUpdated);
-      wsClient.disconnect();
-    };
-  }, [reqId]);
-
-  // Auto-center map when donor accepted or tracking
-  useEffect(() => {
-    if (donorLocation && isDonorAccepted) {
-      // Center between donor and hospital
-      const midLat = (donorLocation[0] + hospitalLoc[0]) / 2;
-      const midLng = (donorLocation[1] + hospitalLoc[1]) / 2;
-      setMapCenter([midLat, midLng]);
-    }
-  }, [donorLocation, isDonorAccepted]);
-
-  // Filter markers: if donor accepted, fade out other markers
-  const displayMarkers = useMemo(() => {
-    if (isDonorAccepted) return []; // Hide nearby dots when donor accepted
-    return nearbyDonorMarkers;
-  }, [nearbyDonorMarkers, isDonorAccepted]);
-
+// ── Connection indicator pill ────────────────────────────────────────────
+const ConnectionPill = React.memo(function ConnectionPill({ connectionState }) {
+  const isLive = connectionState === 'connected';
   return (
-    <div className="fixed inset-0 top-[64px] z-0 overflow-hidden bg-[#050505] animate-cinematic-in">
-      {/* Connection State Indicator */}
-      <AnimatePresence>
-        {connectionState === 'reconnecting' && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-amber-900/80 px-3 py-1.5 rounded-full backdrop-blur-md"
-          >
-            <WifiOff className="w-3 h-3 text-amber-400 animate-pulse" />
-            <span className="text-xs font-bold text-amber-300">Reconnecting...</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#111111]/80 border border-white/5">
+      {isLive
+        ? <><Wifi    className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-400 font-bold">LIVE</span></>
+        : <><WifiOff className="w-3 h-3 text-amber-500"   /><span className="text-[9px] text-amber-400   font-bold">{connectionState.toUpperCase()}</span></>
+      }
+    </div>
+  );
+});
 
-      {/* MAP Layer */}
-      <MapContainer center={hospitalLoc} zoom={13} zoomControl={false} scrollWheelZoom={true} className="absolute inset-0 w-full h-full z-0">
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-        
-        {/* Auto-center when tracking */}
-        {mapCenter && <MapAutoCenter center={mapCenter} zoom={12} />}
-        
-        {/* Hospital Marker */}
-        <Marker position={hospitalLoc} icon={hospitalIcon}>
-          <Popup className="cinematic-popup"><strong>{requestData?.request?.hospital_name}</strong></Popup>
-        </Marker>
-
-        {/* Animated Search Circles (CSS-driven, smooth) */}
-        <SearchCircles center={hospitalLoc} isSearching={isSearching} />
-
-        {/* Nearby Donor Markers (pulsing dots during search) */}
-        {displayMarkers.map((marker, idx) => (
-          <Marker
-            key={`donor-${idx}`}
-            position={[marker.lat, marker.lng]}
-            icon={createNearbyDonorMarker(marker.status === 'eligible')}
-          >
-            <Popup className="cinematic-popup">
-              <span style={{ fontSize: '11px' }}>
-                {marker.blood_type} • {marker.distance_km ? `${marker.distance_km} km` : 'Nearby'}
-              </span>
-            </Popup>
-          </Marker>
-        ))}
-
-        {/* Accepted Donor — highlighted green, zoomed */}
-        {donorLocation && isDonorAccepted && (
-          <>
-            <Polyline
-              positions={[donorLocation, hospitalLoc]}
-              pathOptions={{
-                color: '#10b981',
-                weight: 3,
-                opacity: 0.7,
-                dashArray: '8, 8',
-              }}
-            />
-            <Marker position={donorLocation} icon={isTracking ? donorTrackingIcon : createAcceptedDonorMarker()}>
-              <Popup className="cinematic-popup">
-                <strong>{acceptedDonor?.donor_name || 'Donor'}</strong>
-                <br />
-                <span style={{ fontSize: '11px' }}>ETA: {eta || '-'} min • {distance || '-'} km</span>
-              </Popup>
-            </Marker>
-          </>
-        )}
-      </MapContainer>
-
-      {/* Map overlay gradients */}
-      <div className="absolute top-0 left-0 right-0 h-24 map-overlay-gradient-top z-[5] pointer-events-none" />
-
-      {/* OVERLAYS */}
-      <div className="absolute inset-0 pointer-events-none z-10 flex p-4 pb-20 lg:p-6 gap-6">
-        {/* Left Side: Timeline */}
-        <div className="w-[350px] hidden lg:block pointer-events-auto h-full overflow-y-auto no-scrollbar">
-          <LiveTimeline events={events} currentState={requestState} />
-        </div>
-
-        {/* Right Side: Search Progress Stream + Status */}
-        <div className="flex-1 flex flex-col justify-between items-end h-full">
-          {/* Top-right: Search Progress Stream */}
-          <div className="w-full max-w-sm pointer-events-auto">
-            <SearchProgressStream
-              searchProgress={searchProgress}
-              ringCountdown={ringCountdown}
-              currentState={requestState}
-            />
+// ── Confirmation Modal ───────────────────────────────────────────────────
+const ConfirmCancelModal = React.memo(function ConfirmCancelModal({
+  visible, onConfirm, onDismiss, isLoading
+}) {
+  if (!visible) return null;
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-40 flex items-center justify-center
+                 bg-black/70 backdrop-blur-sm"
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+        className="max-w-sm w-full mx-4 rounded-[24px] bg-[#0A0A0C]/96
+                   border border-white/10 shadow-2xl overflow-hidden"
+      >
+        <div className="h-1.5 bg-gradient-to-r from-amber-600 via-red-500 to-amber-600" />
+        <div className="p-6 flex flex-col items-center gap-5">
+          <div className="w-16 h-16 rounded-full bg-red-500/15 border-2 border-red-400/40
+                          flex items-center justify-center">
+            <AlertTriangle className="w-8 h-8 text-red-400" />
           </div>
-
-          {/* Bottom Tracking Sheet */}
-          <AnimatePresence>
-            {(isTracking || requestState === 'ARRIVED') && (
-              <motion.div 
-                initial={{ y: 100, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 100, opacity: 0 }}
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                className="w-full max-w-md pointer-events-auto bg-[#0A0A0C]/95 backdrop-blur-xl border border-emerald-500/30 rounded-[32px] p-6 shadow-[0_0_40px_rgba(16,185,129,0.15)] relative overflow-hidden"
-              >
-                {/* Animated progress bar at top */}
-                <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500/20 overflow-hidden">
-                  <motion.div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400"
-                    initial={{ width: "0%" }}
-                    animate={{ width: requestState === 'ARRIVED' ? "100%" : "60%" }}
-                    transition={{ duration: requestState === 'ARRIVED' ? 0.5 : 30 }}
-                  />
-                </div>
-
-                <h2 className="text-emerald-400 font-black tracking-widest uppercase text-[10px] mb-4 flex items-center gap-2">
-                  <CheckCircle2 className="w-3 h-3" />
-                  {requestState === 'ARRIVED' ? 'Donor Arrived' : 'Live Tracking'}
-                </h2>
-                
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                      requestState === 'ARRIVED'
-                        ? 'bg-emerald-500/30 border-emerald-400 animate-accepted-glow'
-                        : 'bg-emerald-500/20 border-emerald-500/50'
-                    }`}>
-                      <User className="w-6 h-6 text-emerald-400" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-black text-white">{acceptedDonor?.donor_name || 'Donor'}</h3>
-                        <span className="text-2xl font-black text-emerald-500">
-                          {eta || '-'}
-                          <span className="text-[10px] text-[#86868B] uppercase block -mt-1 text-right">Min</span>
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="px-2 py-0.5 bg-blood-500/20 text-blood-500 text-[10px] font-bold rounded">
-                          {acceptedDonor?.donor_blood_type || 'O-'}
-                        </span>
-                        <span className="text-sm text-[#86868B] flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> {distance || '-'} km away
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Donor Simulator Button + Connection indicator */}
-          <div className="pointer-events-auto mt-4 self-end flex items-center gap-3">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-[#111111]/80 border border-white/5">
-              {connectionState === 'connected' ? (
-                <><Wifi className="w-3 h-3 text-emerald-500" /><span className="text-[9px] text-emerald-400 font-bold">LIVE</span></>
-              ) : (
-                <><WifiOff className="w-3 h-3 text-amber-500" /><span className="text-[9px] text-amber-400 font-bold">{connectionState.toUpperCase()}</span></>
-              )}
-            </div>
+          <div className="text-center">
+            <h3 className="text-lg font-black text-white">Cancel Emergency?</h3>
+            <p className="text-sm text-white/40 mt-2 leading-relaxed">
+              Are you sure you want to cancel this emergency blood request?
+              Donors may already have been notified.
+            </p>
+          </div>
+          <div className="w-full flex gap-3">
             <button
-              onClick={() => onSimulateDonor(requestData?.matching_summary?.request_id)}
-              className="px-4 py-2 bg-slate-800/80 backdrop-blur-md text-xs text-white rounded-full hover:bg-slate-700 border border-slate-600/50 transition-colors"
+              onClick={onDismiss}
+              disabled={isLoading}
+              className="flex-1 py-3 rounded-xl bg-white/8 text-white/70 text-sm font-bold
+                         hover:bg-white/12 transition-colors disabled:opacity-40"
             >
-              Open Donor Simulator
+              Keep Active
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={isLoading}
+              className="flex-1 py-3 rounded-xl bg-red-600 text-white text-sm font-bold
+                         hover:bg-red-500 transition-colors disabled:opacity-60
+                         flex items-center justify-center gap-2"
+            >
+              {isLoading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Cancelling…</>
+              ) : (
+                <><Ban className="w-4 h-4" /> Cancel Request</>
+              )}
             </button>
           </div>
         </div>
+      </motion.div>
+    </motion.div>
+  );
+});
+
+// ── Cancelled Overlay ────────────────────────────────────────────────────
+const CancelledOverlay = React.memo(function CancelledOverlay({ events, onClose }) {
+  const stateCount = useMemo(() => events.length, [events]);
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9, y: 40 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+      className="absolute inset-0 z-20 flex items-center justify-center
+                 bg-[#050505]/85 backdrop-blur-md"
+    >
+      <div className="max-w-sm w-full mx-4 rounded-[32px] overflow-hidden
+                      bg-[#0A0A0C]/96 border border-white/8 shadow-2xl">
+        <div className="h-1.5 bg-gradient-to-r from-amber-600 via-red-500 to-amber-600" />
+        <div className="p-7 flex flex-col items-center gap-6">
+          <motion.div
+            initial={{ scale: 0, rotate: -20 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ type: 'spring', stiffness: 200, delay: 0.15 }}
+            className="w-20 h-20 rounded-full bg-red-500/15 border-2 border-red-400/40
+                       flex items-center justify-center"
+          >
+            <XCircle className="w-10 h-10 text-red-400" />
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="text-center"
+          >
+            <h2 className="text-2xl font-black text-white">Request Cancelled</h2>
+            <p className="text-sm text-white/40 mt-1.5">
+              This emergency request has been cancelled.
+              No further donor matching will occur.
+            </p>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/5"
+          >
+            <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <div>
+              <div className="text-[11px] font-bold text-red-400">Cancelled</div>
+              <div className="text-[9px] text-white/30 uppercase tracking-wide">{stateCount} events recorded</div>
+            </div>
+          </motion.div>
+          <motion.button
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            onClick={onClose}
+            className="w-full flex items-center justify-center gap-2 py-3.5 px-6
+                       rounded-2xl bg-white text-black font-black text-sm
+                       hover:bg-white/90 active:scale-[0.98] transition-all"
+          >
+            <Home className="w-4 h-4" />
+            Return to Home
+          </motion.button>
+        </div>
       </div>
+    </motion.div>
+  );
+});
+
+// ── Main Component ───────────────────────────────────────────────────────
+export default function EmergencyLiveTracker({ requestData, onSimulateDonor }) {
+  // All WS logic lives in the hook
+  const session = useTrackingSession(requestData);
+
+  const {
+    requestState,
+    events,
+    donorLocation,
+    initialDonorPos,
+    routeHistory,
+    etaSeconds,
+    distance,
+    progress,
+    acceptedDonor,
+    searchProgress,
+    ringCountdown,
+    connectionState,
+    hospitalLoc,
+    isSearching,
+    isTracking,
+    isArrived,
+    isDonationPhase,
+    isClosed,
+    isCancelled,
+    isDonorAccepted,
+  } = session;
+
+  // ── Cancellation state ──────────────────────────────────────────
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const toast = useToast();
+  const reqId = requestData?.request?.id;
+
+  const canCancel = isSearching && !isCancelled && !isClosed;
+
+  const handleCancelRequest = useCallback(async () => {
+    if (!reqId || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      await cancelRequest(reqId);
+      setShowCancelConfirm(false);
+      toast.addToast({
+        title: 'Request Cancelled',
+        message: 'The emergency request has been cancelled.',
+        type: 'alert',
+        duration: 5000
+      });
+    } catch (err) {
+      toast.addToast({
+        title: 'Cancellation Failed',
+        message: err.message || 'Could not cancel the request. Please try again.',
+        type: 'alert',
+        duration: 5000
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  }, [reqId, isCancelling, toast]);
+
+  // Nearby donor markers come from searchProgress events via SearchProgressStream
+  // (unchanged from Phase 1 — SearchProgressStream handles its own marker state)
+  const nearbyMarkers = useMemo(() => [], []); // SearchProgressStream renders its own dots via Leaflet-less approach
+
+  // Stable callback for simulate button
+  const handleSimulate = useCallback(async () => {
+    const reqId = requestData?.request?.id || requestData?.matching_summary?.request_id;
+    if (!reqId) {
+      onSimulateDonor?.();
+      return;
+    }
+
+    try {
+      // Fetch latest status to get populated matches generated by background AI engine
+      const latestData = await getRequestStatus(reqId);
+      const firstMatchId = latestData?.matches?.[0]?.match_id;
+      
+      if (!firstMatchId) {
+        toast.addToast({
+          title: 'Matching in Progress',
+          message: 'The AI engine is still generating matches. Please wait until Ring 1 begins.',
+          type: 'alert',
+          duration: 4000
+        });
+        return;
+      }
+      
+      onSimulateDonor?.(firstMatchId);
+    } catch (e) {
+      console.error("[Demo] Failed to get latest matches:", e);
+      const fallbackMatchId = requestData?.matches?.[0]?.match_id;
+      if (fallbackMatchId) {
+        onSimulateDonor?.(fallbackMatchId);
+      } else {
+        toast.addToast({
+          title: 'Error',
+          message: 'Could not fetch matches. Please wait or try again.',
+          type: 'alert',
+          duration: 3000
+        });
+      }
+    }
+  }, [onSimulateDonor, requestData, toast]);
+
+  // Handle SummaryCard close — navigate home
+  const handleClose = useCallback(() => {
+    window.location.href = '/';
+  }, []);
+
+  // Show ArrivalOverlay for ARRIVED, DONATION_STARTED, DONATION_COMPLETED
+  const showArrivalOverlay = isArrived || isDonationPhase;
+
+  return (
+    <div className="absolute inset-0 z-0 overflow-hidden bg-[#050505] animate-cinematic-in">
+      {/* Reconnecting banner */}
+      <ReconnectingBanner visible={connectionState === 'reconnecting'} />
+
+      {/* ── MAP (full-bleed background) ─────────────────────────── */}
+      <div className="absolute inset-0">
+        <TrackingMap
+          hospitalLoc={hospitalLoc}
+          donorLocation={donorLocation}
+          initialDonorPos={initialDonorPos}
+          routeHistory={routeHistory}
+          nearbyMarkers={nearbyMarkers}
+          isSearching={isSearching}
+          isTracking={isTracking}
+          isDonorAccepted={isDonorAccepted}
+          requestState={requestState}
+          acceptedDonor={acceptedDonor}
+          etaSeconds={etaSeconds}
+          distance={distance}
+          hospitalName={requestData?.request?.hospital_name}
+        />
+      </div>
+
+      {/* Map top gradient */}
+      <div className="absolute top-0 left-0 right-0 h-24 map-overlay-gradient-top z-[5] pointer-events-none" />
+
+      {/* ── ARRIVAL / DONATION overlays ─────────────────────────── */}
+      <ArrivalOverlay
+        requestState={showArrivalOverlay ? requestState : null}
+        acceptedDonor={acceptedDonor}
+      />
+
+      {/* ── CLOSED — summary card ───────────────────────────────── */}
+      <AnimatePresence>
+        {isClosed && (
+          <SummaryCard
+            acceptedDonor={acceptedDonor}
+            events={events}
+            onClose={handleClose}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── CANCELLED — cancelled overlay ────────────────────────── */}
+      <AnimatePresence>
+        {isCancelled && (
+          <CancelledOverlay events={events} onClose={handleClose} />
+        )}
+      </AnimatePresence>
+
+      {/* ── Cancel confirmation modal ────────────────────────────── */}
+      <AnimatePresence>
+        <ConfirmCancelModal
+          visible={showCancelConfirm}
+          onConfirm={handleCancelRequest}
+          onDismiss={() => setShowCancelConfirm(false)}
+          isLoading={isCancelling}
+        />
+      </AnimatePresence>
+
+      {/* ── OVERLAYS (timeline + tracking card) ─────────────────── */}
+      {!isClosed && !isCancelled && (
+        <div className="absolute inset-0 pointer-events-none z-10 flex p-4 pb-20 lg:p-6 gap-6">
+          {/* Left — timeline */}
+          <div className="w-[350px] hidden lg:block pointer-events-auto h-full overflow-y-auto no-scrollbar">
+            <LiveTimeline events={events} currentState={requestState} />
+          </div>
+
+          {/* Right — search stream + tracking card */}
+          <div className="flex-1 flex flex-col justify-between items-end h-full">
+            {/* Top-right: Search Progress Stream */}
+            <div className="w-full max-w-sm pointer-events-auto">
+              <SearchProgressStream
+                searchProgress={searchProgress}
+                ringCountdown={ringCountdown}
+                currentState={requestState}
+              />
+            </div>
+
+            {/* Bottom: Tracking card (TRACKING / ARRIVING) */}
+            <AnimatePresence mode="wait">
+              {(isTracking || isArrived) && !showArrivalOverlay && (
+                <TrackingCard
+                  key="tracking-card"
+                  requestState={requestState}
+                  acceptedDonor={acceptedDonor}
+                  etaSeconds={etaSeconds}
+                  distance={distance}
+                  progress={progress}
+                />
+              )}
+            </AnimatePresence>
+
+            {/* Bottom bar: Cancel + Simulator + Connection */}
+            <div className="pointer-events-auto mt-4 self-end flex items-center gap-3">
+              {canCancel && (
+                <button
+                  onClick={() => setShowCancelConfirm(true)}
+                  disabled={isCancelling}
+                  className="px-4 py-2 bg-red-900/60 backdrop-blur-md text-xs text-red-300
+                             rounded-full hover:bg-red-800/70 border border-red-600/40 transition-colors
+                             flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  Cancel Request
+                </button>
+              )}
+              <ConnectionPill connectionState={connectionState} />
+              <button
+                onClick={handleSimulate}
+                className="px-4 py-2 bg-slate-800/80 backdrop-blur-md text-xs text-white
+                           rounded-full hover:bg-slate-700 border border-slate-600/50 transition-colors"
+              >
+                Open Donor Simulator
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -22,7 +22,7 @@ from typing import Dict, Any
 
 from app.config import settings
 from app.database import DatabaseRepository, get_repository, SessionLocal
-from app.api import requests, donors, hospitals, auth
+from app.api import requests, donors, hospitals, auth, notifications
 from app.websockets.connection_manager import manager
 from app.services.ai_parser import parse_emergency_request_text, parse_voice_sos_transcript
 from app.services.voice_script import generate_voice_agent_script
@@ -72,6 +72,7 @@ app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(requests.router, prefix=settings.API_V1_STR)
 app.include_router(donors.router, prefix=settings.API_V1_STR)
 app.include_router(hospitals.router, prefix=settings.API_V1_STR)
+app.include_router(notifications.router, prefix=f"{settings.API_V1_STR}/notifications")
 
 @app.get("/health")
 async def health_check(repo: DatabaseRepository = Depends(get_repository)):

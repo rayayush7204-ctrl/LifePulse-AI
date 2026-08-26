@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     EXOTEL_TOKEN: str = os.getenv("EXOTEL_TOKEN", "demo_exotel_token")
     EXOTEL_PHONE_NUMBER: str = os.getenv("EXOTEL_PHONE_NUMBER", "+18005550199")
     
+    # Firebase Cloud Messaging
+    FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
+    FIREBASE_CREDENTIALS_JSON: str = os.getenv("FIREBASE_CREDENTIALS_JSON", "")
+    
     # LLM Settings (Anthropic / OpenAI format)
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
     LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "claude-3-5-sonnet-20241022")

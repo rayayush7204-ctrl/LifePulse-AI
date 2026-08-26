@@ -11,8 +11,11 @@ class WebSocketClient {
         this.listeners = {};
         this.reconnectTimer = null;
         this.request_id = null;
-        this.baseUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8000/ws/requests";
+        // Use VITE_WS_URL env override (production) or derive from current window host (dev through Vite proxy)
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.baseUrl = import.meta.env.VITE_WS_URL || `${proto}//${window.location.host}/ws/requests`;
         this.connectionState = "disconnected"; // disconnected | connecting | connected | reconnecting
+
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 10;
     }

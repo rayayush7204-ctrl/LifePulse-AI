@@ -15,7 +15,8 @@ from typing import Dict, List, Optional, Any
 from app.config import settings
 from app.models.db_models import (
     Base, UserDB, DonorProfileDB, DonorMedicalScreeningDB,
-    EmergencyRequestDB, DonorMatchDB, HospitalDB, AuditLogDB, DonationHistoryDB, TimelineEventDB
+    EmergencyRequestDB, DonorMatchDB, HospitalDB, AuditLogDB, DonationHistoryDB, TimelineEventDB,
+    FCMDeviceTokenDB, NotificationRecordDB
 )
 
 db_url = settings.DATABASE_URL
@@ -263,8 +264,8 @@ class DatabaseRepository:
             donation_type=req_data.get("donation_type", "WHOLE_BLOOD"),
             units_needed=int(req_data.get("units_needed", 2)),
             urgency_level=req_data.get("urgency_level", "CRITICAL"),
-            latitude=float(req_data.get("latitude", 37.7631)),
-            longitude=float(req_data.get("longitude", -122.4578)),
+            latitude=float(req_data["latitude"]),
+            longitude=float(req_data["longitude"]),
             notes=req_data.get("notes", "Urgent emergency request."),
             status=req_data.get("status", "PENDING")
         )
@@ -382,6 +383,20 @@ class DatabaseRepository:
             return row_to_dict(m)
         return None
 
+    def cancel_pending_matches_for_request(self, req_id: str) -> int:
+        """
+        Bulk-cancels all actionable/pending match records for a request.
+        Preserves historical records (ACCEPTED, DECLINED, EN_ROUTE, ARRIVED).
+        Returns the count of updated records.
+        """
+        actionable_statuses = ["NOTIFIED", "VIEWED", "QUEUED"]
+        updated_count = self.session.query(DonorMatchDB).filter(
+            DonorMatchDB.request_id == req_id,
+            DonorMatchDB.status.in_(actionable_statuses)
+        ).update({"status": "CANCELLED"}, synchronize_session="fetch")
+        self.session.commit()
+        return updated_count
+
     # --- HOSPITAL OPERATIONS ---
     def add_hospital(self, hospital_data: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -403,8 +418,8 @@ class DatabaseRepository:
                 name=hospital_data["name"],
                 phone=hospital_data.get("phone", "+18005550199"),
                 address=hospital_data.get("address", "Hospital Center"),
-                latitude=float(hospital_data.get("latitude", 37.7631)),
-                longitude=float(hospital_data.get("longitude", -122.4578)),
+                latitude=float(hospital_data["latitude"]),
+                longitude=float(hospital_data["longitude"]),
                 inventory_json=hospital_data.get("inventory", {})
             )
             self.session.add(h)
@@ -459,6 +474,62 @@ class DatabaseRepository:
         return res
 
     # --- TIMELINE OPERATIONS ---
+    def _log_audit_event(self, action: str, entity_type: str, entity_id: str, details: Dict[str, Any], user_id: Optional[str] = None):
+        """Internal helper to synchronously log an audit event during another transaction."""
+        log = AuditLogDB(
+            id=f"evt-{uuid.uuid4().hex[:8]}",
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details_json=details,
+            performed_by_user_id=user_id
+        )
+        self.session.add(log)
+        
+    # --- FCM & NOTIFICATION OPERATIONS ---
+    def add_device_token(self, user_id: str, token: str, platform: str = "web") -> Dict[str, Any]:
+        existing = self.session.query(FCMDeviceTokenDB).filter(
+            FCMDeviceTokenDB.user_id == user_id,
+            FCMDeviceTokenDB.token == token
+        ).first()
+        if existing:
+            existing.platform = platform
+            self.session.commit()
+            return row_to_dict(existing)
+            
+        new_token = FCMDeviceTokenDB(
+            id=f"tkn-{uuid.uuid4().hex[:8]}",
+            user_id=user_id,
+            token=token,
+            platform=platform
+        )
+        self.session.add(new_token)
+        self.session.commit()
+        return row_to_dict(new_token)
+
+    def remove_device_token(self, token: str):
+        self.session.query(FCMDeviceTokenDB).filter(FCMDeviceTokenDB.token == token).delete()
+        self.session.commit()
+
+    def get_user_tokens(self, user_id: str) -> List[str]:
+        tokens = self.session.query(FCMDeviceTokenDB.token).filter(FCMDeviceTokenDB.user_id == user_id).all()
+        return [t[0] for t in tokens]
+
+    def create_notification(self, notification_data: Dict[str, Any]) -> Dict[str, Any]:
+        record = NotificationRecordDB(
+            id=f"notif-{uuid.uuid4().hex[:8]}",
+            user_id=notification_data["user_id"],
+            type=notification_data.get("type", "GENERAL"),
+            title=notification_data["title"],
+            body=notification_data["body"],
+            request_id=notification_data.get("request_id"),
+            match_id=notification_data.get("match_id"),
+            status=notification_data.get("status", "SENT")
+        )
+        self.session.add(record)
+        self.session.commit()
+        return row_to_dict(record)
+
     def add_timeline_event(self, request_id: str, message: str, state: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         event = TimelineEventDB(
             id=f"evt-{uuid.uuid4().hex[:8]}",

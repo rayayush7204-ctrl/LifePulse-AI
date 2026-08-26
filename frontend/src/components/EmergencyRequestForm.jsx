@@ -152,6 +152,15 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
 
     try {
       const hosp = selectedHospital || PRESET_HOSPITALS[0];
+      const lat = parseFloat(hosp.lat);
+      const lon = parseFloat(hosp.lon);
+
+      if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        addToast({ title: 'Location Required', message: 'Valid hospital coordinates are required. Please select a hospital or use the map.', type: 'alert' });
+        setIsSubmitting(false);
+        return;
+      }
+
       const payload = {
         patient_name: patientName.trim() || "Emergency Patient",
         requester_phone: requesterPhone.trim() || "+10000000000",
@@ -160,8 +169,8 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
         donation_type: "WHOLE_BLOOD",
         units_needed: parseInt(unitsNeeded) || 2,
         urgency_level: urgencyLevel || "CRITICAL",
-        latitude: parseFloat(hosp.lat) || 37.7631,
-        longitude: parseFloat(hosp.lon) || -122.4578,
+        latitude: lat,
+        longitude: lon,
         notes: notes.trim() || "Urgent emergency request."
       };
 
@@ -184,7 +193,7 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 top-[64px] z-0 overflow-hidden bg-[#050505] flex flex-col"
+      className="relative w-full h-[calc(100vh-140px)] min-h-[600px] z-0 overflow-hidden bg-[#050505] flex flex-col rounded-3xl border border-white/10 shadow-2xl"
     >
       {/* Full-Screen Map Background */}
       <div className="absolute inset-0 z-0">

@@ -3,12 +3,13 @@ Blood Requests Router.
 Endpoints for submitting emergency requests, fetching live match status, audit logs, and triggering ring escalation.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Depends, status
 from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
 from app.models.schemas import BloodRequestCreate, BloodRequestResponse, DonorMatchResponse, SubmitRequestResponse
 from app.database import DatabaseRepository, get_repository
-from app.websockets.connection_manager import manager
-from app.api.auth import get_current_user_optional
+from app.websockets.connection_manager import manager, WSEventType
+from app.api.auth import get_current_user_optional, get_current_user_required
 from app.services.matching_engine import MatchingEngine
 from app.services.emergency_state_machine import EmergencyStateMachine, EmergencyState
 from app.services.escalation_engine import escalation_engine
@@ -91,6 +92,34 @@ async def submit_emergency_request(
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to create emergency request.")
 
+@router.get("/nearby", response_model=List[Dict[str, Any]])
+async def get_nearby_requests(
+    repo: DatabaseRepository = Depends(get_repository),
+    lat: float = Query(..., description="User latitude"),
+    lon: float = Query(..., description="User longitude"),
+    radius_km: float = Query(50.0, description="Search radius in km")
+):
+    """
+    Returns active (non-fulfilled/cancelled) emergency requests within radius_km, sorted by distance.
+    """
+    from app.matching.hard_filters import calculate_haversine_distance_km, calculate_bounding_box
+
+    bbox = calculate_bounding_box(lat, lon, radius_km)
+    all_requests = repo.list_requests(bbox=bbox)
+    active = [r for r in all_requests if r.get("status") not in ("FULFILLED", "CANCELLED")]
+    nearby = []
+    for req in active:
+        r_lat = req.get("latitude")
+        r_lon = req.get("longitude")
+        if r_lat is None or r_lon is None:
+            continue
+        dist = round(calculate_haversine_distance_km(lat, lon, r_lat, r_lon), 2)
+        if dist <= radius_km:
+            req_copy = {**req, "distance_from_user_km": dist}
+            nearby.append(req_copy)
+    nearby.sort(key=lambda x: x["distance_from_user_km"])
+    return nearby
+
 @router.get("/{request_id}", response_model=Dict[str, Any])
 async def get_request_status(request_id: str, repo: DatabaseRepository = Depends(get_repository)):
     """
@@ -137,34 +166,6 @@ async def trigger_escalation(request_id: str, repo: DatabaseRepository = Depends
     await manager.broadcast_to_request(request_id, {"type": "RING_ESCALATED", "data": res})
     return res
 
-@router.get("/nearby", response_model=List[Dict[str, Any]])
-async def get_nearby_requests(
-    repo: DatabaseRepository = Depends(get_repository),
-    lat: float = Query(..., description="User latitude"),
-    lon: float = Query(..., description="User longitude"),
-    radius_km: float = Query(50.0, description="Search radius in km")
-):
-    """
-    Returns active (non-fulfilled/cancelled) emergency requests within radius_km, sorted by distance.
-    """
-    from app.matching.hard_filters import calculate_haversine_distance_km, calculate_bounding_box
-
-    bbox = calculate_bounding_box(lat, lon, radius_km)
-    all_requests = repo.list_requests(bbox=bbox)
-    active = [r for r in all_requests if r.get("status") not in ("FULFILLED", "CANCELLED")]
-    nearby = []
-    for req in active:
-        r_lat = req.get("latitude")
-        r_lon = req.get("longitude")
-        if r_lat is None or r_lon is None:
-            continue
-        dist = round(calculate_haversine_distance_km(lat, lon, r_lat, r_lon), 2)
-        if dist <= radius_km:
-            req_copy = {**req, "distance_from_user_km": dist}
-            nearby.append(req_copy)
-    nearby.sort(key=lambda x: x["distance_from_user_km"])
-    return nearby
-
 @router.get("/{request_id}/share", response_model=Dict[str, Any])
 async def get_shareable_request_data(request_id: str, repo: DatabaseRepository = Depends(get_repository)):
     """
@@ -181,4 +182,79 @@ async def get_shareable_request_data(request_id: str, repo: DatabaseRepository =
         "urgency_level": req.get("urgency_level"),
         "status": req.get("status"),
         "created_at": req.get("created_at"),
+    }
+
+# Terminal states that cannot be cancelled
+_TERMINAL_STATES = {"CLOSED", "CANCELLED", "DONATION_STARTED", "DONATION_COMPLETED"}
+
+@router.patch("/{request_id}/cancel", response_model=Dict[str, Any])
+async def cancel_emergency_request(
+    request_id: str,
+    repo: DatabaseRepository = Depends(get_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user_required)
+):
+    """
+    Cancels an active emergency request.
+    Only the original requester can cancel their own request.
+    Requests without an owner (legacy/anonymous) cannot be cancelled via this endpoint.
+    """
+    # 1. Verify request exists
+    req = repo.get_request(request_id)
+    if not req:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Emergency request '{request_id}' not found."
+        )
+
+    # 2. Authorization: owner-only
+    requester_user_id = req.get("requester_user_id")
+    if not requester_user_id:
+        # Legacy/anonymous request — no owner recorded, cannot be cancelled by regular users
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This request has no registered owner and cannot be cancelled without admin authorization."
+        )
+    if requester_user_id != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to cancel this request."
+        )
+
+    # 3. Verify request is not already terminal
+    previous_status = req.get("status", "CREATED")
+    if previous_status in _TERMINAL_STATES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Request cannot be cancelled — current status is '{previous_status}'."
+        )
+
+    # 4. Cancel pending/actionable donor matches (preserves ACCEPTED, DECLINED, etc.)
+    cancelled_matches_count = repo.cancel_pending_matches_for_request(request_id)
+
+    # 5. Transition to CANCELLED via state machine (updates DB, records timeline event, broadcasts WS)
+    await EmergencyStateMachine.transition(
+        request_id,
+        EmergencyState.CANCELLED,
+        "Emergency request cancelled by requester.",
+        {"cancelled_by": current_user["id"], "previous_status": previous_status}
+    )
+
+    # 6. Broadcast dedicated REQUEST_CANCELLED event via WebSocket
+    cancelled_at = datetime.now(timezone.utc).isoformat()
+    await manager.broadcast_to_request(request_id, {
+        "type": WSEventType.REQUEST_CANCELLED,
+        "request_id": request_id,
+        "previous_status": previous_status,
+        "new_status": "CANCELLED",
+        "cancelled_at": cancelled_at,
+        "message": "Emergency request has been cancelled."
+    })
+
+    return {
+        "request_id": request_id,
+        "previous_status": previous_status,
+        "new_status": "CANCELLED",
+        "cancelled_at": cancelled_at,
+        "cancelled_matches_count": cancelled_matches_count,
+        "message": "Emergency request cancelled successfully."
     }

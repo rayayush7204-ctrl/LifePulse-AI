@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, CheckCircle, Navigation, MapPin, Clock } from 'lucide-react';
-import { respondDonorAction } from '../services/api';
+import { respondDonorAction, withdrawDonorMatch } from '../services/api';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import DonorTrackingView from './DonorTrackingView';
 
 const hospitalIcon = L.divIcon({
   className: 'custom-leaflet-marker',
@@ -33,37 +34,70 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
     }
   }, [isOpen, status]);
 
+  const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
+  const [withdrawError, setWithdrawError] = useState(null);
+
   const handleAccept = async () => {
-    if (!activeMatchId) return;
     try {
-      await respondDonorAction(activeMatchId, 'ACCEPTED');
+      if (activeMatchId && activeMatchId.startsWith('match-')) {
+        await respondDonorAction(activeMatchId, 'ACCEPTED');
+      } else {
+        await new Promise(r => setTimeout(r, 400)); // Simulate network for demo
+      }
       setStatus('ACCEPTED');
+      // Intentionally keeping modal open so donor can withdraw or see tracking.
+    } catch (e) {
+      console.error("Accept failed on backend:", e);
+      alert(e.message || "Failed to accept the request. It may have already been fulfilled or cancelled.");
+      // Do not transition to ACCEPTED state locally if backend failed
+      onClose();
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (isWithdrawing) return;
+    setIsWithdrawing(true);
+    setWithdrawError(null);
+    try {
+      if (activeMatchId && activeMatchId.startsWith('match-')) {
+        await withdrawDonorMatch(activeMatchId);
+      } else {
+        await new Promise(r => setTimeout(r, 800));
+      }
+      setStatus('WITHDRAWN');
       setTimeout(() => {
         onClose();
         setStatus('IDLE');
+        setShowWithdrawConfirm(false);
       }, 3000);
     } catch (e) {
-      console.error(e);
+      console.error("Withdraw failed:", e);
+      setWithdrawError(e.message || "Failed to withdraw.");
+    } finally {
+      setIsWithdrawing(false);
     }
   };
 
   const handleDecline = async () => {
-    if (!activeMatchId) return;
     try {
-      await respondDonorAction(activeMatchId, 'DECLINED');
+      if (activeMatchId && activeMatchId.startsWith('match-')) {
+        await respondDonorAction(activeMatchId, 'DECLINED');
+      }
       onClose();
       setStatus('IDLE');
     } catch (e) {
-      console.error(e);
+      console.error("[Demo Resilience] Decline failed on backend:", e);
       onClose();
       setStatus('IDLE');
     }
   };
 
-  // Safe defaults for map if request details missing
-  const lat = requestDetails?.latitude || 37.7631;
-  const lon = requestDetails?.longitude || -122.4578;
-  const position = [lat, lon];
+  // Only use real coordinates — never fake fallback
+  const lat = requestDetails?.latitude;
+  const lon = requestDetails?.longitude;
+  const hasValidLocation = lat != null && lon != null && isFinite(lat) && isFinite(lon);
+  const position = hasValidLocation ? [lat, lon] : null;
   
   // Approximate distance (in reality would be passed from backend match data, simulate here as ~3km)
   const estDistance = "3.2"; 
@@ -86,23 +120,39 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
                     <motion.div className="h-full bg-blood-500" initial={{ x: '-100%' }} animate={{ x: '100%' }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} />
                 </div>
                 
-                {/* Mini Map Header */}
-                <div className="h-40 w-full relative z-0">
-                  <MapContainer center={position} zoom={13} zoomControl={false} scrollWheelZoom={false} dragging={false} className="w-full h-full">
-                    <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-                    <Marker position={position} icon={hospitalIcon} />
-                  </MapContainer>
-                  {/* Gradient overlay to fade map into content */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0C] via-[#0A0A0C]/40 to-transparent pointer-events-none z-10" />
-                  
-                  {/* Floating Timer */}
-                  <div className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md border border-white/10 rounded-full px-3 py-1 flex items-center gap-2">
-                    <Clock className={`w-3.5 h-3.5 ${countdown <= 10 ? 'text-blood-500 animate-pulse' : 'text-amber-400'}`} />
-                    <span className={`text-xs font-black tabular-nums ${countdown <= 10 ? 'text-blood-500' : 'text-amber-400'}`}>
-                      00:{countdown.toString().padStart(2, '0')}
-                    </span>
+                {/* Mini Map Header — only shown when coordinates are available */}
+                {hasValidLocation ? (
+                  <div className="h-40 w-full relative z-0">
+                    <MapContainer center={position} zoom={13} zoomControl={false} scrollWheelZoom={false} dragging={false} className="w-full h-full">
+                      <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+                      <Marker position={position} icon={hospitalIcon} />
+                    </MapContainer>
+                    {/* Gradient overlay to fade map into content */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0C] via-[#0A0A0C]/40 to-transparent pointer-events-none z-10" />
+                    
+                    {/* Floating Timer */}
+                    <div className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md border border-white/10 rounded-full px-3 py-1 flex items-center gap-2">
+                      <Clock className={`w-3.5 h-3.5 ${countdown <= 10 ? 'text-blood-500 animate-pulse' : 'text-amber-400'}`} />
+                      <span className={`text-xs font-black tabular-nums ${countdown <= 10 ? 'text-blood-500' : 'text-amber-400'}`}>
+                        00:{countdown.toString().padStart(2, '0')}
+                      </span>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="h-32 w-full relative z-0 flex items-center justify-center bg-white/3">
+                    <div className="text-center">
+                      <div className="text-white/20 text-xs font-bold">Location Unavailable</div>
+                      <div className="text-white/10 text-[10px] mt-1">Map cannot be displayed</div>
+                    </div>
+                    {/* Floating Timer */}
+                    <div className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur-md border border-white/10 rounded-full px-3 py-1 flex items-center gap-2">
+                      <Clock className={`w-3.5 h-3.5 ${countdown <= 10 ? 'text-blood-500 animate-pulse' : 'text-amber-400'}`} />
+                      <span className={`text-xs font-black tabular-nums ${countdown <= 10 ? 'text-blood-500' : 'text-amber-400'}`}>
+                        00:{countdown.toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="px-6 pb-6 pt-2 relative z-10 -mt-6">
                   <div className="flex flex-col items-center text-center">
@@ -134,17 +184,25 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
                   </div>
                 </div>
               </>
+            ) : status === 'ACCEPTED' ? (
+              <DonorTrackingView
+                requestDetails={requestDetails}
+                activeMatchId={activeMatchId}
+                onWithdraw={handleWithdraw}
+                isWithdrawing={isWithdrawing}
+                withdrawError={withdrawError}
+                onClose={() => {
+                  onClose();
+                  setStatus('IDLE');
+                }}
+              />
             ) : (
               <div className="flex flex-col items-center text-center py-12 px-6">
-                <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center mb-6 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
-                  <CheckCircle className="w-10 h-10 text-emerald-400" />
+                <div className="w-20 h-20 rounded-full bg-gray-500/20 border-2 border-gray-500 flex items-center justify-center mb-6">
+                  <CheckCircle className="w-10 h-10 text-gray-400" />
                 </div>
-                <h2 className="text-2xl font-black text-emerald-400 uppercase tracking-widest">Accepted</h2>
-                <p className="text-sm text-[#86868B] mt-2 max-w-xs">Connecting securely to dispatch. Your location is being shared with the hospital.</p>
-                <div className="mt-8 flex items-center justify-center gap-2 text-white font-bold bg-white/5 border border-white/10 px-5 py-2.5 rounded-full text-xs uppercase tracking-widest">
-                    <Navigation className="w-4 h-4 text-emerald-500" />
-                    Simulating GPS Stream...
-                </div>
+                <h2 className="text-2xl font-black text-gray-400 uppercase tracking-widest">Withdrawn</h2>
+                <p className="text-sm text-[#86868B] mt-2 max-w-xs">You have successfully withdrawn from this emergency request.</p>
               </div>
             )}
           </motion.div>

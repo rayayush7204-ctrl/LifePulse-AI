@@ -10,7 +10,7 @@ from app.models.schemas import DonorCreate, DonorResponse, DonorActionPayload, D
 from app.database import DatabaseRepository, get_repository
 from app.websockets.connection_manager import manager
 from app.matching.medical_prescreening import evaluate_medical_prescreening
-from app.api.auth import get_current_user_optional
+from app.api.auth import get_current_user_optional, get_current_user_required
 from app.services.emergency_state_machine import EmergencyStateMachine, EmergencyState
 from app.services.gps_service import GPSService
 import asyncio
@@ -167,11 +167,13 @@ async def update_donor_location(donor_id: str, payload: DonorLocationUpdate, rep
 
     for m in matched_items:
         req_id = m.get("request_id")
-        req = repo.get_request(req_id) or {"latitude": 37.7631, "longitude": -122.4578}
+        req = repo.get_request(req_id)
+        if not req:
+            continue  # Skip match if request no longer exists
         
         dist_km = round(calculate_haversine_distance_km(
             payload.latitude, payload.longitude,
-            req.get("latitude", 37.7631), req.get("longitude", -122.4578)
+            req["latitude"], req["longitude"]
         ), 2)
         speed = payload.speed_kmh or 35.0
         eta_mins = max(1, round((dist_km / speed) * 60))
@@ -207,4 +209,79 @@ async def update_donor_location(donor_id: str, payload: DonorLocationUpdate, rep
         "message": "Location updated and GPS Radar broadcasted.",
         "donor": repo.get_donor(donor_id),
         "location_updates": active_updates
+    }
+
+
+@router.patch("/matches/{match_id}/withdraw")
+async def withdraw_donor(match_id: str, current_user: Dict[str, Any] = Depends(get_current_user_required), repo: DatabaseRepository = Depends(get_repository)):
+    """
+    Allows a donor to withdraw from an accepted emergency request.
+    Verifies ownership, validates allowed states, marks match as WITHDRAWN,
+    and transitions the request to MATCHING to find a replacement.
+    """
+    match_rec = repo.get_match(match_id)
+    if not match_rec:
+        raise HTTPException(status_code=404, detail="Match record not found.")
+
+    donor_profile = repo.get_donor_by_user_id(current_user["id"])
+    if not donor_profile or match_rec["donor_id"] != donor_profile["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to withdraw this match.")
+
+    req_id = match_rec["request_id"]
+    req = repo.get_request(req_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Associated request not found.")
+
+    old_status = match_rec.get("status")
+    
+    # Allowed states for withdrawal based on existing workflow
+    allowed_states = ["NOTIFIED", "VIEWED", "ACCEPTED", "EN_ROUTE", "ARRIVED"]
+    
+    if old_status in ["DONATION_STARTED", "DONATION_COMPLETED"]:
+        raise HTTPException(status_code=400, detail="Cannot withdraw after donation has started.")
+    
+    if old_status in ["CANCELLED", "WITHDRAWN"]:
+        raise HTTPException(status_code=400, detail=f"Match is already {old_status}.")
+
+    if old_status not in allowed_states:
+        raise HTTPException(status_code=400, detail=f"Cannot withdraw from state {old_status}.")
+
+    # Update match status to WITHDRAWN
+    repo.update_match_status(match_id, "WITHDRAWN")
+
+    # If this donor was the active one, transition the emergency request to find a replacement
+    # A donor is active if the request is DONOR_ACCEPTED, TRACKING, or ARRIVING
+    if req["status"] in ["DONOR_ACCEPTED", "TRACKING", "ARRIVING"]:
+        # Safety check: is there another active donor? The existing system assumes 1 active donor.
+        # Transition back to MATCHING to kick off a replacement search.
+        await EmergencyStateMachine.transition(
+            req_id,
+            EmergencyState.MATCHING,
+            "Donor withdrew. Restarting matching to find a replacement.",
+            {"withdrawn_match_id": match_id, "withdrawn_donor_id": donor_profile["id"]}
+        )
+        # Background task to re-run the matching engine safely
+        from app.services.matching_engine import MatchingEngine
+        asyncio.create_task(MatchingEngine.run_matching_cycle(req_id))
+    
+    # Broadcast DONOR_WITHDRAWN event
+    await manager.broadcast_progress(
+        req_id,
+        "DONOR_WITHDRAWN",
+        {
+            "match_id": match_id,
+            "donor_id": donor_profile["id"],
+            "previous_status": old_status,
+            "new_status": "WITHDRAWN",
+            "message": "Donor has withdrawn from the request."
+        }
+    )
+
+    return {
+        "match_id": match_id,
+        "request_id": req_id,
+        "donor_id": donor_profile["id"],
+        "previous_status": old_status,
+        "new_status": "WITHDRAWN",
+        "message": "Successfully withdrawn from emergency request."
     }
