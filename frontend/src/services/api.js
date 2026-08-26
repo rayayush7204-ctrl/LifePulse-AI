@@ -3,7 +3,7 @@
  * Includes JWT authentication, fail-open client-side fallback for offline/network-down resilience.
  */
 
-const API_BASE = '/api/v1';
+const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
 // Client-side fail-open logic has been removed to strictly enforce real PostgreSQL data usage.
 
@@ -295,8 +295,13 @@ export async function cancelRequest(requestId) {
 // ── WebSocket Subscription ──────────────────────────────────────
 export function subscribeToRequestWebsocket(requestId, onEvent) {
   const token = localStorage.getItem('token');
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws/requests/${requestId}${token ? `?token=${token}` : ''}`;
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let base = import.meta.env.VITE_WS_URL || `${proto}//${window.location.host}/ws/requests`;
+  base = base.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
+  if (window.location.protocol === 'https:' && base.startsWith('ws://')) {
+    base = base.replace(/^ws:\/\//i, 'wss://');
+  }
+  const wsUrl = `${base}/${requestId}${token ? `?token=${token}` : ''}`;
   
   const ws = new WebSocket(wsUrl);
   ws.onopen = () => console.log(`[WS] Connected to request ${requestId}`);

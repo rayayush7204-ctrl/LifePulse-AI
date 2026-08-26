@@ -11,9 +11,13 @@ class WebSocketClient {
         this.listeners = {};
         this.reconnectTimer = null;
         this.request_id = null;
-        // Use VITE_WS_URL env override (production) or derive from current window host (dev through Vite proxy)
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.baseUrl = import.meta.env.VITE_WS_URL || `${proto}//${window.location.host}/ws/requests`;
+        let base = import.meta.env.VITE_WS_URL || `${proto}//${window.location.host}/ws/requests`;
+        base = base.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
+        if (window.location.protocol === 'https:' && base.startsWith('ws://')) {
+            base = base.replace(/^ws:\/\//i, 'wss://');
+        }
+        this.baseUrl = base;
         this.connectionState = "disconnected"; // disconnected | connecting | connected | reconnecting
 
         this.reconnectAttempts = 0;

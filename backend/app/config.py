@@ -9,14 +9,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Smart Blood Donation Network"
     API_V1_STR: str = "/api/v1"
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-emergency-blood-match-key-2026")
+    SECRET_KEY: str
     
     # Database Settings (PostgreSQL engine configuration)
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/blood_donor")
+    FRONTEND_CORS_ORIGINS: str = os.getenv("FRONTEND_CORS_ORIGINS", "http://localhost:5173,http://localhost:8000")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
     USE_SQLITE_FALLBACK: bool = os.getenv("USE_SQLITE_FALLBACK", "False").lower() == "true"
     
     # Redis Settings
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
     
     # Matching Engine Parameters
     DEFAULT_MAX_RADIUS_KM: float = 25.0
@@ -24,9 +25,9 @@ class Settings(BaseSettings):
     RING_ESCALATION_TIMEOUT_SECONDS: int = 45  # Ring 1 timeout before ring 2 fan-out
     
     # Exotel / Notification Credentials
-    EXOTEL_SID: str = os.getenv("EXOTEL_SID", "demo_exotel_sid")
-    EXOTEL_TOKEN: str = os.getenv("EXOTEL_TOKEN", "demo_exotel_token")
-    EXOTEL_PHONE_NUMBER: str = os.getenv("EXOTEL_PHONE_NUMBER", "+18005550199")
+    EXOTEL_SID: str = os.getenv("EXOTEL_SID", "")
+    EXOTEL_TOKEN: str = os.getenv("EXOTEL_TOKEN", "")
+    EXOTEL_PHONE_NUMBER: str = os.getenv("EXOTEL_PHONE_NUMBER", "")
     
     # Firebase Cloud Messaging
     FIREBASE_CREDENTIALS_PATH: str = os.getenv("FIREBASE_CREDENTIALS_PATH", "")
