@@ -100,13 +100,17 @@ async def get_nearby_requests(
     radius_km: float = Query(50.0, description="Search radius in km")
 ):
     """
-    Returns active (non-fulfilled/cancelled) emergency requests within radius_km, sorted by distance.
+    Returns active (non-terminal) emergency requests within radius_km, sorted by distance.
+    Terminal states (CLOSED, CANCELLED, DONATION_COMPLETED) are excluded.
     """
     from app.matching.hard_filters import calculate_haversine_distance_km, calculate_bounding_box
 
+    # Terminal states that should NOT appear in the donor-facing nearby feed
+    TERMINAL_STATES = {"CLOSED", "CANCELLED", "DONATION_COMPLETED"}
+
     bbox = calculate_bounding_box(lat, lon, radius_km)
     all_requests = repo.list_requests(bbox=bbox)
-    active = [r for r in all_requests if r.get("status") not in ("FULFILLED", "CANCELLED")]
+    active = [r for r in all_requests if r.get("status") not in TERMINAL_STATES]
     nearby = []
     for req in active:
         r_lat = req.get("latitude")
@@ -119,6 +123,7 @@ async def get_nearby_requests(
             nearby.append(req_copy)
     nearby.sort(key=lambda x: x["distance_from_user_km"])
     return nearby
+
 
 @router.get("/{request_id}", response_model=Dict[str, Any])
 async def get_request_status(request_id: str, repo: DatabaseRepository = Depends(get_repository)):
