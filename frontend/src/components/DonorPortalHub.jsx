@@ -321,7 +321,7 @@ export default function DonorPortalHub({ onSimulateAlert }) {
             userLon={gps?.location?.longitude}
             onHelpRequest={(req) => {
               addToast({ title: 'Alert Accepted', message: `Routing to ${req.hospital_name}`, type: 'success' });
-              onSimulateAlert?.();
+              onSimulateAlert?.(req);
             }}
           />
 

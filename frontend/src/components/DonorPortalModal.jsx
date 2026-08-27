@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, CheckCircle, Navigation, MapPin, Clock } from 'lucide-react';
-import { respondDonorAction, withdrawDonorMatch } from '../services/api';
+import { respondDonorAction, withdrawDonorMatch, getRequestMatches } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import DonorTrackingView from './DonorTrackingView';
@@ -16,6 +17,7 @@ const hospitalIcon = L.divIcon({
 export default function DonorPortalModal({ isOpen, onClose, activeMatchId, requestDetails }) {
   const [status, setStatus] = useState('IDLE'); // IDLE, ACCEPTED
   const [countdown, setCountdown] = useState(45);
+  const { user } = useAuth();
   
   useEffect(() => {
     if (isOpen && status === 'IDLE') {
@@ -40,10 +42,21 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
 
   const handleAccept = async () => {
     try {
-      if (activeMatchId && activeMatchId.startsWith('match-')) {
-        await respondDonorAction(activeMatchId, 'ACCEPTED');
+      let matchIdToAccept = activeMatchId;
+
+      if (!matchIdToAccept && requestDetails?.id) {
+        // We need to fetch the match for this donor
+        const matches = await getRequestMatches(requestDetails.id);
+        const myMatch = matches.find(m => m.donor_name === user?.name);
+        if (myMatch && myMatch.match_id) {
+          matchIdToAccept = myMatch.match_id;
+        }
+      }
+
+      if (matchIdToAccept && matchIdToAccept.startsWith('match-')) {
+        await respondDonorAction(matchIdToAccept, 'ACCEPTED');
       } else {
-        await new Promise(r => setTimeout(r, 400)); // Simulate network for demo
+        await new Promise(r => setTimeout(r, 400)); // Simulate network for demo if no match found
       }
       setStatus('ACCEPTED');
       // Intentionally keeping modal open so donor can withdraw or see tracking.

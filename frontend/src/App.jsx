@@ -96,6 +96,7 @@ function AppContent() {
   const [activeRequestData, setActiveRequestData] = useState(null);
   const [isDonorPortalOpen, setIsDonorPortalOpen] = useState(false);
   const [simulatedMatchId, setSimulatedMatchId] = useState(null);
+  const [donorSelectedRequest, setDonorSelectedRequest] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   const navigate = useNavigate();
@@ -126,6 +127,7 @@ function AppContent() {
   useEffect(() => {
     setIsDonorPortalOpen(false);
     setSimulatedMatchId(null);
+    setDonorSelectedRequest(null);
   }, [location.pathname]);
 
   const handleRequestSubmitted = (response) => {
@@ -216,7 +218,12 @@ function AppContent() {
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
                 <DonorPortalHub
-                  onSimulateAlert={() => setIsDonorPortalOpen(true)}
+                  onSimulateAlert={(req) => {
+                    if (req && typeof req === 'object') {
+                      setDonorSelectedRequest(req);
+                    }
+                    setIsDonorPortalOpen(true);
+                  }}
                 />
               </motion.div>
             } />
@@ -250,9 +257,12 @@ function AppContent() {
 
       <DonorPortalModal
         isOpen={isDonorPortalOpen}
-        onClose={() => setIsDonorPortalOpen(false)}
+        onClose={() => {
+          setIsDonorPortalOpen(false);
+          setDonorSelectedRequest(null);
+        }}
         activeMatchId={simulatedMatchId}
-        requestDetails={activeRequestData?.request}
+        requestDetails={donorSelectedRequest || activeRequestData?.request}
       />
 
       <AuthModal

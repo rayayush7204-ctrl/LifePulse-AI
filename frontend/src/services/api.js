@@ -57,6 +57,17 @@ export async function getRequestAudit(requestId) {
   }
 }
 
+export async function getRequestMatches(requestId) {
+  try {
+    const res = await fetch(`${API_BASE}/requests/${requestId}/matches`);
+    if (res.ok) return await res.json();
+    return [];
+  } catch (err) {
+    console.error("[API] getRequestMatches error:", err);
+    return [];
+  }
+}
+
 export async function respondDonorAction(matchId, action, etaMinutes = null, latitude = null, longitude = null) {
   try {
     const res = await fetch(`${API_BASE}/donors/respond`, {
