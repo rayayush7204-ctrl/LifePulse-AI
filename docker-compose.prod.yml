@@ -1,0 +1,30 @@
+
+services:
+  backend:
+    restart: always
+    # Ensure production environment variables override defaults
+    environment:
+      - USE_SQLITE_FALLBACK=False
+    # Specify internal docker path if mounting secret later
+      - FIREBASE_CREDENTIALS_PATH=/app/firebase-service-account.json
+    volumes:
+      - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
+    # Bind to 127.0.0.1 for security. A host Nginx will proxy to this.
+    ports: !override
+      - "127.0.0.1:8000:8000"
+
+  db:
+    restart: always
+    # Completely remove dev ports, only bind to 127.0.0.1 for security
+    ports: !reset []
+    # Use a separate volume for production data
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+
+  redis:
+    restart: always
+    # Completely remove dev ports, only bind to 127.0.0.1 for security
+    ports: !reset []
+
+volumes:
+  postgres_data_prod:
