@@ -20,9 +20,10 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
   const { user } = useAuth();
   
   useEffect(() => {
+    let timer;
     if (isOpen && status === 'IDLE') {
       setCountdown(45);
-      const timer = setInterval(() => {
+      timer = setInterval(() => {
         setCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
@@ -32,15 +33,21 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
           return prev - 1;
         });
       }, 1000);
-      return () => clearInterval(timer);
     }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [isOpen, status]);
 
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [isDeclining, setIsDeclining] = useState(false);
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
   const [withdrawError, setWithdrawError] = useState(null);
 
   const handleAccept = async () => {
+    if (isAccepting || isDeclining || isWithdrawing) return;
+    setIsAccepting(true);
     try {
       let matchIdToAccept = activeMatchId;
 
@@ -65,6 +72,8 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
       alert(e.message || "Failed to accept the request. It may have already been fulfilled or cancelled.");
       // Do not transition to ACCEPTED state locally if backend failed
       onClose();
+    } finally {
+      setIsAccepting(false);
     }
   };
 
@@ -93,6 +102,8 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
   };
 
   const handleDecline = async () => {
+    if (isAccepting || isDeclining || isWithdrawing) return;
+    setIsDeclining(true);
     try {
       if (activeMatchId && activeMatchId.startsWith('match-')) {
         await respondDonorAction(activeMatchId, 'DECLINED');
@@ -103,6 +114,8 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
       console.error("[Demo Resilience] Decline failed on backend:", e);
       onClose();
       setStatus('IDLE');
+    } finally {
+      setIsDeclining(false);
     }
   };
 
@@ -187,11 +200,11 @@ export default function DonorPortalModal({ isOpen, onClose, activeMatchId, reque
                     </div>
                     
                     <div className="flex gap-3 w-full mt-6">
-                      <button onClick={handleDecline} className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-[#86868B] hover:text-white font-bold transition-all text-sm uppercase tracking-wider">
-                        Decline
+                      <button disabled={isAccepting || isDeclining} onClick={handleDecline} className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-[#86868B] hover:text-white font-bold transition-all text-sm uppercase tracking-wider disabled:opacity-50">
+                        {isDeclining ? '...' : 'Decline'}
                       </button>
-                      <button onClick={handleAccept} className="flex-1 py-3.5 rounded-xl bg-blood-500 text-white font-black shadow-[0_0_20px_rgba(229,9,20,0.4)] transition-all text-sm uppercase tracking-wider animate-urgency-pulse hover:bg-blood-600 hover:scale-[1.02]">
-                        Accept
+                      <button disabled={isAccepting || isDeclining} onClick={handleAccept} className="flex-1 py-3.5 rounded-xl bg-blood-500 text-white font-black shadow-[0_0_20px_rgba(229,9,20,0.4)] transition-all text-sm uppercase tracking-wider animate-urgency-pulse hover:bg-blood-600 hover:scale-[1.02] disabled:opacity-50 disabled:animate-none">
+                        {isAccepting ? '...' : 'Accept'}
                       </button>
                     </div>
                   </div>

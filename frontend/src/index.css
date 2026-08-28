@@ -10,6 +10,9 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
   background-image: radial-gradient(circle at 50% 0%, rgba(26, 1, 2, 0.4) 0%, rgba(5, 5, 5, 1) 50%);
   background-attachment: fixed;
 }
@@ -236,6 +239,10 @@ body {
 }
 
 /* Bottom mobile nav */
+:root {
+  --bottom-nav-height: calc(56px + env(safe-area-inset-bottom, 8px));
+}
+
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -245,7 +252,13 @@ body {
   background: rgba(10, 10, 12, 0.85);
   backdrop-filter: blur(32px) saturate(1.5);
   border-top: 1px solid rgba(255, 255, 255, 0.04);
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: env(safe-area-inset-bottom, 8px);
+  padding-top: 4px;
+  min-height: var(--bottom-nav-height);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ── NEW: Event Stream Styles ────────────────────────── */

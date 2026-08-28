@@ -7,6 +7,7 @@ import { useToast } from './NotificationToast';
 import { reverseGeocode, haversineDistance } from '../services/geolocation';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import { SectionErrorBoundary } from './ErrorBoundary';
 
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
 
@@ -105,12 +106,15 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
 
   const handleVoiceSOSDictation = async (presetText = null) => {
     if (presetText) {
+      if (isParsingAI) return;
       setIsParsingAI(true);
       try {
         const parsed = await parseVoiceSOS(presetText);
         applyParsedFields(parsed, presetText);
         addToast({ title: 'Voice Parsed', message: `Extracted: ${parsed.blood_type}, ${parsed.units_needed} units`, type: 'success' });
-      } catch (err) {} finally { setIsParsingAI(false); }
+      } catch (err) {
+        addToast({ title: 'Parsing Failed', message: 'Could not extract details.', type: 'alert' });
+      } finally { setIsParsingAI(false); }
       return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -128,7 +132,9 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
           const transcript = event.results[0][0].transcript;
           const parsed = await parseVoiceSOS(transcript);
           applyParsedFields(parsed, transcript);
-        } catch (err) {} finally { setIsParsingAI(false); }
+        } catch (err) {
+          addToast({ title: 'Parsing Failed', message: 'Could not extract details.', type: 'alert' });
+        } finally { setIsParsingAI(false); }
       };
       recognition.onerror = () => { setIsListening(false); handleVoiceSOSDictation(VOICE_DICTATION_PRESETS[0]); };
       recognition.start();
@@ -179,10 +185,13 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
       // Navigate to live tracker with 0.3s timeout for cinematic transition effect
       setTimeout(() => {
         onRequestSubmitted(response);
+        // Reset after nav so we can submit again if user comes back
+        setTimeout(() => setIsSubmitting(false), 500);
       }, 300);
 
     } catch (err) {
       console.error("[Submit Error]", err);
+      addToast({ title: 'Broadcast Failed', message: err.message || 'Failed to submit request.', type: 'alert' });
       setIsSubmitting(false);
     }
   };
@@ -193,43 +202,48 @@ export default function EmergencyRequestForm({ onRequestSubmitted }) {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="relative w-full h-[calc(100vh-140px)] min-h-[600px] z-0 overflow-hidden bg-[#050505] flex flex-col rounded-3xl border border-white/10 shadow-2xl"
+      className="relative w-full max-w-2xl mx-auto min-h-[calc(100dvh-140px)] z-0 flex flex-col rounded-3xl shadow-2xl"
     >
-      {/* Full-Screen Map Background */}
-      <div className="absolute inset-0 z-0">
-        <MapContainer center={mapCenter} zoom={14} zoomControl={false} scrollWheelZoom={true} className="w-full h-full opacity-60">
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-          <LocationPicker position={mapCenter} onPositionChange={setCustomMapPos} />
-        </MapContainer>
-        {/* Gradients to fade map into UI */}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505] pointer-events-none" />
-      </div>
-
-      {/* Floating Voice AI FAB */}
-      <div className="absolute top-6 right-6 z-20">
-        <button 
-          type="button" 
-          onClick={() => handleVoiceSOSDictation()}
-          className={`flex items-center gap-3 px-4 py-3 rounded-full backdrop-blur-xl border border-white/10 shadow-2xl transition-all ${
-            isListening || isParsingAI 
-              ? 'bg-blood-500/20 border-blood-500 text-blood-500 animate-pulse' 
-              : 'bg-[#0A0A0C]/80 text-white hover:bg-white/10'
-          }`}
-        >
-          {isParsingAI ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Mic className="w-5 h-5" />}
-          <span className="text-sm font-bold tracking-widest uppercase">
-            {isListening ? "Listening..." : isParsingAI ? "Parsing AI..." : "Voice SOS"}
-          </span>
-        </button>
+      {/* Background container without overflow-hidden on the main element */}
+      <div className="absolute inset-0 rounded-3xl border border-white/10 overflow-hidden bg-[#050505] -z-10">
+        {/* Full-Screen Map Background */}
+        <div className="absolute inset-0 z-0">
+          <SectionErrorBoundary>
+            <MapContainer center={mapCenter} zoom={14} zoomControl={false} scrollWheelZoom={true} className="w-full h-full opacity-60 bg-[#050505]">
+              <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+              <LocationPicker position={mapCenter} onPositionChange={setCustomMapPos} />
+            </MapContainer>
+          </SectionErrorBoundary>
+          {/* Gradients to fade map into UI */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505] pointer-events-none" />
+        </div>
       </div>
 
       {/* Bottom Sheet UI */}
-      <div className="relative z-10 mt-auto w-full max-w-2xl mx-auto p-4 pb-8 sm:pb-12">
-        <form onSubmit={handleSubmit} className="bg-[#0A0A0C]/90 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-[0_-20px_60px_rgba(0,0,0,0.6)]">
+      <div className="relative z-10 mt-auto w-full mx-auto p-4 pb-[env(safe-area-inset-bottom)]">
+        <form onSubmit={handleSubmit} className="bg-[#0A0A0C]/90 backdrop-blur-2xl border border-white/10 rounded-3xl p-5 sm:p-8 shadow-[0_-20px_60px_rgba(0,0,0,0.6)]">
           
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-black text-white tracking-tight uppercase">Emergency Dispatch</h1>
-            <p className="text-[#86868B] text-sm mt-1">Tap map to set hospital location</p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 text-center sm:text-left">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight uppercase">Emergency Dispatch</h1>
+              <p className="text-[#86868B] text-xs sm:text-sm mt-1">Tap map to set hospital location</p>
+            </div>
+            {/* Voice SOS Button integrated into header to prevent overlap */}
+            <button 
+              type="button" 
+              disabled={isListening || isParsingAI}
+              onClick={() => handleVoiceSOSDictation()}
+              className={`flex items-center justify-center gap-2 px-4 py-2 sm:py-3 rounded-full backdrop-blur-xl border border-white/10 shadow-lg transition-all ${
+                isListening || isParsingAI 
+                  ? 'bg-blood-500/20 border-blood-500 text-blood-500 animate-pulse' 
+                  : 'bg-white/10 text-white hover:bg-white/20'
+              }`}
+            >
+              {isParsingAI ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+              <span className="text-xs font-bold tracking-widest uppercase">
+                {isListening ? "Listening..." : isParsingAI ? "Parsing AI..." : "Voice SOS"}
+              </span>
+            </button>
           </div>
 
           <div className="space-y-6">

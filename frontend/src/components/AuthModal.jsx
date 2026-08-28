@@ -20,6 +20,13 @@ export default function AuthModal({ isOpen, onClose }) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  
+  const isMounted = React.useRef(true);
+  
+  React.useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -33,12 +40,14 @@ export default function AuthModal({ isOpen, onClose }) {
         identifier = identifier.replace(/[\s\-\(\)]/g, '');
       }
       await login({ email_or_mobile: identifier, password });
-      addToast({ title: 'Welcome Back!', message: 'Login successful.', type: 'success' });
-      onClose();
+      if (isMounted.current) {
+        addToast({ title: 'Welcome Back!', message: 'Login successful.', type: 'success' });
+        onClose();
+      }
     } catch (err) {
-      setErrorMsg(err.message || 'Invalid email/mobile or password.');
+      if (isMounted.current) setErrorMsg(err.message || 'Invalid email/mobile or password.');
     } finally {
-      setIsSubmitting(false);
+      if (isMounted.current) setIsSubmitting(false);
     }
   };
 
@@ -63,12 +72,14 @@ export default function AuthModal({ isOpen, onClose }) {
         mobile_number: cleanMobile,
         password: signupPassword
       });
-      addToast({ title: 'Account Created!', message: 'Welcome to LifePulse AI.', type: 'success' });
-      onClose();
+      if (isMounted.current) {
+        addToast({ title: 'Account Created!', message: 'Welcome to LifePulse AI.', type: 'success' });
+        onClose();
+      }
     } catch (err) {
-      setErrorMsg(err.message || 'Registration failed.');
+      if (isMounted.current) setErrorMsg(err.message || 'Registration failed.');
     } finally {
-      setIsSubmitting(false);
+      if (isMounted.current) setIsSubmitting(false);
     }
   };
 

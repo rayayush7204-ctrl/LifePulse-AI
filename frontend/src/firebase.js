@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { getMessaging, getToken, onMessage, isSupported } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -12,13 +12,38 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const messaging = getMessaging(app);
+
+// ── SAFE Messaging init ────────────────────────────────────────
+// getMessaging() throws on browsers that don't support FCM (e.g. iOS Safari
+// without a service-worker context). We must never let that crash the React
+// tree, so we initialise lazily and guard every call site.
+let messaging = null;
+
+// Lazy, one-shot initialiser — returns messaging instance or null.
+async function getMessagingSafe() {
+  if (messaging) return messaging;
+  try {
+    const supported = await isSupported();
+    if (supported) {
+      messaging = getMessaging(app);
+      return messaging;
+    }
+  } catch (err) {
+    console.warn("[Firebase] Messaging not supported on this browser:", err.message);
+  }
+  return null;
+}
 
 export const requestFirebaseNotificationPermission = async () => {
   try {
+    const msg = await getMessagingSafe();
+    if (!msg) {
+      console.warn("[Firebase] Push notifications are not supported on this browser/device.");
+      return null;
+    }
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      const token = await getToken(messaging, { 
+      const token = await getToken(msg, { 
         vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY 
       });
       return token;
@@ -33,10 +58,22 @@ export const requestFirebaseNotificationPermission = async () => {
 };
 
 export const onMessageListener = () =>
-  new Promise((resolve) => {
-    onMessage(messaging, (payload) => {
-      resolve(payload);
-    });
+  new Promise((resolve, reject) => {
+    getMessagingSafe()
+      .then((msg) => {
+        if (!msg) {
+          // FCM not available — resolve with null so callers don't hang forever
+          resolve(null);
+          return;
+        }
+        onMessage(msg, (payload) => {
+          resolve(payload);
+        });
+      })
+      .catch((err) => {
+        console.warn("[Firebase] onMessageListener setup failed:", err);
+        reject(err);
+      });
   });
 
 export { messaging };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HashRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
@@ -13,6 +13,7 @@ import AuthModal from './components/AuthModal';
 import { ToastProvider, useToast } from './components/NotificationToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getCurrentPosition } from './services/geolocation';
+import { SectionErrorBoundary } from './components/ErrorBoundary';
 
 // ── GPS State Model ─────────────────────────────────────────────
 export const GPS_STATES = {
@@ -117,10 +118,14 @@ function AppContent() {
     };
   }, []);
 
-  const handleSetActiveTab = (tab) => {
+  const isNavigatingRef = useRef(false);
+  const handleSetActiveTab = useCallback((tab) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
     if (tab === 'home') navigate('/');
     else navigate(`/${tab}`);
-  };
+    setTimeout(() => { isNavigatingRef.current = false; }, 300);
+  }, [navigate]);
 
   // Auto-close the donor portal modal on any route change so it doesn't
   // block the tracker screen after navigating from a previous demo session.
@@ -162,7 +167,7 @@ function AppContent() {
         onOpenDonorPortal={() => setIsDonorPortalOpen(true)}
       />
 
-      <main className="flex-1 w-full mx-auto relative min-h-0 overflow-y-auto">
+      <main className="flex-1 w-full mx-auto relative min-h-0 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
 
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
@@ -174,10 +179,12 @@ function AppContent() {
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
-                <ActionHubHome
-                  onNavigateTab={handleSetActiveTab}
-                  onRequestSubmitted={handleRequestSubmitted}
-                />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <ActionHubHome
+                    onNavigateTab={handleSetActiveTab}
+                    onRequestSubmitted={handleRequestSubmitted}
+                  />
+                </SectionErrorBoundary>
               </motion.div>
             } />
             
@@ -189,7 +196,9 @@ function AppContent() {
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
-                <EmergencyRequestForm onRequestSubmitted={handleRequestSubmitted} />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <EmergencyRequestForm onRequestSubmitted={handleRequestSubmitted} />
+                </SectionErrorBoundary>
               </motion.div>
             } />
             
@@ -201,10 +210,12 @@ function AppContent() {
                 transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                 className="absolute inset-0 z-50 bg-[#050505]"
               >
-                <RequesterDashboard
-                  requestId={activeRequestData?.request?.id}
-                  onSimulateDonorAction={handleSimulateDonorAction}
-                />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <RequesterDashboard
+                    requestId={activeRequestData?.request?.id}
+                    onSimulateDonorAction={handleSimulateDonorAction}
+                  />
+                </SectionErrorBoundary>
               </motion.div>
             } />
 
@@ -217,14 +228,16 @@ function AppContent() {
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
-                <DonorPortalHub
-                  onSimulateAlert={(req) => {
-                    if (req && typeof req === 'object') {
-                      setDonorSelectedRequest(req);
-                    }
-                    setIsDonorPortalOpen(true);
-                  }}
-                />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <DonorPortalHub
+                    onSimulateAlert={(req) => {
+                      if (req && typeof req === 'object') {
+                        setDonorSelectedRequest(req);
+                      }
+                      setIsDonorPortalOpen(true);
+                    }}
+                  />
+                </SectionErrorBoundary>
               </motion.div>
             } />
             
@@ -236,7 +249,9 @@ function AppContent() {
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
-                <HospitalInventoryView />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <HospitalInventoryView />
+                </SectionErrorBoundary>
               </motion.div>
             } />
             
@@ -248,7 +263,9 @@ function AppContent() {
                 transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
                 className="w-full h-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 lg:pb-8"
               >
-                <AuditLogViewer activeRequestId={activeRequestData?.request?.id} />
+                <SectionErrorBoundary onRetry={() => window.location.reload()}>
+                  <AuditLogViewer activeRequestId={activeRequestData?.request?.id} />
+                </SectionErrorBoundary>
               </motion.div>
             } />
           </Routes>
@@ -303,7 +320,7 @@ function MobileBottomNav({ activeTab, setActiveTab, hasActiveRequest }) {
   ];
 
   return (
-    <nav className="bottom-nav lg:hidden flex items-stretch justify-around px-2 pt-2 pb-1">
+    <nav className="bottom-nav lg:hidden flex items-stretch justify-around px-2 pt-2 pb-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 8px)' }}>
       {tabs.map((tab) => (
         <button
           key={tab.id}

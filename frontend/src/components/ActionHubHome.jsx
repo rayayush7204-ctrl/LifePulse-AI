@@ -3,6 +3,7 @@ import { motion, useScroll, useTransform, useInView } from 'framer-motion';
 import { Activity, Droplet, ShieldCheck, Heart, Building2, Sparkles, MapPin, Send, Zap, Clock, Award, PhoneCall, ArrowRight, Navigation, Users, Timer } from 'lucide-react';
 import { submitEmergencyRequest } from '../services/api';
 import { useGPS } from '../App';
+import { useToast } from './NotificationToast';
 
 // ── Cinematic Counter ────────────────────────────────────────────
 function AnimatedCounter({ target, suffix = '', className = '' }) {
@@ -80,14 +81,18 @@ function CinematicOrb() {
     </div>
   );
 }
-
 export default function ActionHubHome({ onNavigateTab, onRequestSubmitted }) {
   const gps = useGPS();
+  const { addToast } = useToast();
   const { scrollYProgress } = useScroll();
   const yHero = useTransform(scrollYProgress, [0, 1], [0, 300]);
   const opacityHero = useTransform(scrollYProgress, [0, 0.2], [1, 0]);
 
+  const [isDemoLoading, setIsDemoLoading] = useState(false);
+
   const handleQuickDemo = async (city) => {
+    if (isDemoLoading) return;
+    setIsDemoLoading(true);
     let demoPayload = {
       patient_name: "Emergency Patient",
       requester_phone: "+14155550999",
@@ -131,6 +136,9 @@ export default function ActionHubHome({ onNavigateTab, onRequestSubmitted }) {
       onRequestSubmitted(res);
     } catch (e) {
       console.error(e);
+      addToast({ title: 'Demo Failed', message: e.message || 'Could not launch demo.', type: 'alert' });
+    } finally {
+      setIsDemoLoading(false);
     }
   };
 
@@ -202,16 +210,18 @@ export default function ActionHubHome({ onNavigateTab, onRequestSubmitted }) {
             </div>
             <div className="flex flex-wrap justify-center gap-3">
               <button
+                disabled={isDemoLoading}
                 onClick={() => handleQuickDemo("GPS")}
-                className="px-4 py-2 rounded-full bg-[#111111] text-[#86868B] border border-white/5 hover:text-white hover:border-white/10 transition-colors text-xs font-semibold flex items-center gap-2"
+                className="px-4 py-2 rounded-full bg-[#111111] text-[#86868B] border border-white/5 hover:text-white hover:border-white/10 transition-colors text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
               >
                 <Navigation className="w-3.5 h-3.5" /> GPS
               </button>
               {["SF", "BLR", "MUM"].map((city) => (
                 <button
                   key={city}
+                  disabled={isDemoLoading}
                   onClick={() => handleQuickDemo(city)}
-                  className="px-4 py-2 rounded-full bg-[#111111] text-[#86868B] border border-white/5 hover:text-white hover:border-white/10 transition-colors text-xs font-semibold"
+                  className="px-4 py-2 rounded-full bg-[#111111] text-[#86868B] border border-white/5 hover:text-white hover:border-white/10 transition-colors text-xs font-semibold disabled:opacity-50"
                 >
                   {city}
                 </button>

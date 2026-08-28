@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Droplet, Activity, ShieldCheck, HeartHandshake, Building2, Smartphone, Heart, Sparkles, Wifi, WifiOff, Bell, LogIn, LogOut, User, ChevronDown } from 'lucide-react';
@@ -25,23 +25,38 @@ export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenD
   }, [activeRequest]);
 
   useEffect(() => {
-    if (user) {
-      onMessageListener().then((payload) => {
-        setNotifications(prev => prev + 1);
-        console.log("Foreground message:", payload);
-      }).catch(err => console.log('failed: ', err));
-    }
+    if (!user) return;
+    let isMounted = true;
+    onMessageListener()
+      .then((payload) => {
+        if (!isMounted) return;
+        // payload is null when FCM isn't supported (e.g. iOS Safari)
+        if (payload) {
+          setNotifications(prev => prev + 1);
+          console.log("Foreground message:", payload);
+        }
+      })
+      .catch((err) => {
+        // Non-fatal — FCM simply isn't available on this device
+        console.warn('[Navbar] Firebase message listener unavailable:', err);
+      });
+    return () => { isMounted = false; };
   }, [user]);
 
   const handleEnableNotifications = async () => {
-    const token = await requestFirebaseNotificationPermission();
-    if (token) {
-      await registerDeviceToken(token);
-      alert("Push notifications enabled!");
-    } else {
-      alert("Notification permission denied or failed.");
+    try {
+      const token = await requestFirebaseNotificationPermission();
+      if (token) {
+        await registerDeviceToken(token);
+        console.log('[Navbar] Push notifications enabled successfully');
+      } else {
+        console.warn('[Navbar] Notification permission denied or not supported on this device.');
+      }
+    } catch (err) {
+      console.error('[Navbar] Failed to enable notifications:', err);
+    } finally {
+      setShowUserMenu(false);
     }
-    setShowUserMenu(false);
   };
 
   // Close user menu on outside click
