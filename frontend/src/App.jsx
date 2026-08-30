@@ -448,6 +448,14 @@ function AppContent() {
         onClose={() => setShowAuthModal(false)}
       />
 
+      {incomingEmergency && (
+        <IncomingEmergencyOverlay
+          matchId={incomingEmergency.matchId}
+          requestDetails={incomingEmergency.requestDetails}
+          onClose={() => setIncomingEmergency(null)}
+        />
+      )}
+
       <footer className="hidden lg:block py-6 text-center text-xs text-[#86868B] bg-transparent">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
