@@ -33,6 +33,7 @@ export default function useTrackingSession(requestData) {
   const [searchProgress, setSearchProgress] = useState(null);
   const [ringCountdown,  setRingCountdown]  = useState(null);
   const [connectionState,setConnectionState]= useState('disconnected');
+  const [routeGeometry,  setRouteGeometry]  = useState(null); // GeoJSON from OSRM
 
   // ── Derived flags ─────────────────────────────────────────────
   const isSearching    = ['CREATED','AI_PROCESSING','VALIDATING','SEARCHING','MATCHING','RING1','RING2','WAITING'].includes(requestState);
@@ -85,6 +86,11 @@ export default function useTrackingSession(requestData) {
 
     // Capture initial donor position (for the faded full-route background line)
     setInitialDonorPos(prev => prev ?? pos);
+
+    // Store OSRM route geometry if provided
+    if (data.route_geometry) {
+      setRouteGeometry(data.route_geometry);
+    }
   }, [startCountdown]);
 
   const handleDonorStatus = useCallback((data) => {
@@ -237,5 +243,6 @@ export default function useTrackingSession(requestData) {
     isClosed,
     isCancelled,
     isDonorAccepted,
+    routeGeometry,
   };
 }

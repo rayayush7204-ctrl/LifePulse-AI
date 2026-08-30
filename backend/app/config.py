@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Smart Blood Donation Network"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str
+    # Environment
+    APP_ENV: str = os.getenv("APP_ENV", "development")
     
     # Database Settings (PostgreSQL engine configuration)
     FRONTEND_CORS_ORIGINS: str = os.getenv("FRONTEND_CORS_ORIGINS", "http://localhost:5173,http://localhost:8000")

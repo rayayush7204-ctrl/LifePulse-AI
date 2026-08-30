@@ -13,6 +13,8 @@ from app.matching.medical_prescreening import evaluate_medical_prescreening
 from app.api.auth import get_current_user_optional, get_current_user_required
 from app.services.emergency_state_machine import EmergencyStateMachine, EmergencyState
 from app.services.gps_service import GPSService
+from app.services.routing_service import RoutingService
+from app.config import settings
 import asyncio
 
 router = APIRouter(prefix="/donors", tags=["Donors"])
@@ -133,7 +135,10 @@ async def respond_to_emergency_alert(payload: DonorActionPayload, repo: Database
             {"match_id": payload.match_id}
         )
         
-        asyncio.create_task(GPSService.simulate_donor_drive(req_id, payload.match_id))
+        # Simulator isolation: only run simulation in non-production environments
+        if payload.mode == "simulated" and settings.APP_ENV != "production":
+            asyncio.create_task(GPSService.simulate_donor_drive(req_id, payload.match_id))
+        # In production (or mode=="real"), we wait for the device to POST to /location
 
     return {
         "message": f"Match status updated to '{new_status}'",
@@ -143,8 +148,10 @@ async def respond_to_emergency_alert(payload: DonorActionPayload, repo: Database
 @router.post("/location", response_model=DonorLocationUpdateResponse)
 async def update_donor_location(donor_id: str, payload: DonorLocationUpdate, repo: DatabaseRepository = Depends(get_repository)):
     """
-    Updates live GPS coordinates and availability for an en-route donor in the database.
-    Recalculates ETA and broadcasts live GPS Radar update via WebSockets.
+    Updates live GPS coordinates and availability for an en-route donor.
+    Uses OSRM for road routing (with Haversine fallback).
+    Broadcasts canonical GPS_UPDATE via WebSockets.
+    Includes arrival detection heuristics.
     """
     from app.matching.hard_filters import calculate_haversine_distance_km
 
@@ -170,14 +177,30 @@ async def update_donor_location(donor_id: str, payload: DonorLocationUpdate, rep
         req = repo.get_request(req_id)
         if not req:
             continue  # Skip match if request no longer exists
-        
-        dist_km = round(calculate_haversine_distance_km(
-            payload.latitude, payload.longitude,
-            req["latitude"], req["longitude"]
-        ), 2)
-        speed = payload.speed_kmh or 35.0
-        eta_mins = max(1, round((dist_km / speed) * 60))
 
+        # Discard highly inaccurate GPS points (e.g., cell tower triangulation)
+        if payload.accuracy and payload.accuracy > 500:
+            continue
+
+        # Try OSRM for real road routing
+        route = await RoutingService.get_route(
+            src_lat=payload.latitude, src_lng=payload.longitude,
+            dest_lat=req["latitude"], dest_lng=req["longitude"]
+        )
+
+        if route:
+            dist_km = round(route["distance_km"], 2)
+            eta_mins = route["eta_minutes"]
+        else:
+            # Haversine fallback
+            dist_km = round(calculate_haversine_distance_km(
+                payload.latitude, payload.longitude,
+                req["latitude"], req["longitude"]
+            ), 2)
+            speed = payload.speed_kmh or 35.0
+            eta_mins = max(1, round((dist_km / speed) * 60))
+
+        # Update DB match record with latest position
         repo.add_match({
             "match_id": m["match_id"],
             "request_id": req_id,
@@ -188,25 +211,42 @@ async def update_donor_location(donor_id: str, payload: DonorLocationUpdate, rep
             "eta_minutes": eta_mins
         })
 
+        # ── Arrival Heuristics ──────────────────────────────────────
+        req_status = req.get("status")
+        if req_status in [EmergencyState.TRACKING.value, EmergencyState.ARRIVING.value]:
+            if dist_km <= 0.05 and req_status == EmergencyState.ARRIVING.value:
+                # < 50m while already ARRIVING → ARRIVED
+                await EmergencyStateMachine.transition(
+                    req_id, EmergencyState.ARRIVED,
+                    "Donor has arrived at the destination.",
+                    {"match_id": m["match_id"]}
+                )
+            elif dist_km <= 0.2 and req_status == EmergencyState.TRACKING.value:
+                # < 200m while TRACKING → ARRIVING
+                await EmergencyStateMachine.transition(
+                    req_id, EmergencyState.ARRIVING,
+                    "Donor is arriving (< 200m).",
+                    {"match_id": m["match_id"]}
+                )
+
+        # ── Canonical GPS_UPDATE event ──────────────────────────────
         location_event_data = {
-            "donor_id": donor_id,
-            "donor_name": m.get("donor_name", donor.get("name", "Donor")),
-            "donor_blood_type": m.get("donor_blood_type", donor.get("blood_type", "O-")),
-            "latitude": payload.latitude,
-            "longitude": payload.longitude,
-            "distance_km": dist_km,
+            "type": "GPS_UPDATE",
+            "request_id": req_id,
+            "lat": payload.latitude,
+            "lng": payload.longitude,
             "eta_minutes": eta_mins,
-            "speed_kmh": speed,
-            "status": m.get("status", "EN_ROUTE"),
-            "match_id": m.get("match_id"),
-            "request_id": req_id
+            "distance_km": dist_km,
+            "route_geometry": route["geometry"] if route else None,
+            "step": 1,
+            "total_steps": 100
         }
 
         active_updates.append(location_event_data)
-        await manager.broadcast_to_request(req_id, {"type": "DONOR_LOCATION_UPDATED", "data": location_event_data})
+        await manager.broadcast_to_request(req_id, location_event_data)
 
     return {
-        "message": "Location updated and GPS Radar broadcasted.",
+        "message": "Location updated and GPS_UPDATE broadcasted.",
         "donor": repo.get_donor(donor_id),
         "location_updates": active_updates
     }

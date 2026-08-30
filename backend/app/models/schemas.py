@@ -101,6 +101,7 @@ class DonorLocationUpdate(BaseModel):
     is_available: Optional[bool] = None
     request_id: Optional[str] = None
     speed_kmh: Optional[float] = 35.0
+    accuracy: Optional[float] = None
 
 # --- MEDICAL PRE-SCREENING SCHEMAS ---
 
@@ -236,6 +237,7 @@ class DonorActionPayload(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     request_id: Optional[str] = None
+    mode: str = "real"  # "real" or "simulated"
 
 # --- TIMELINE SCHEMAS ---
 

@@ -14,7 +14,7 @@
  *  - Handle ARRIVED → DONATION lifecycle
  *  - Provide Withdraw button during tracking
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Navigation, MapPin, Clock, Activity, User, Droplets,
@@ -25,6 +25,7 @@ import {
 import useTrackingSession from '../hooks/useTrackingSession';
 import TrackingMap from './tracking/TrackingMap';
 import ArrivalOverlay from './tracking/ArrivalOverlay';
+import { updateDonorLocation } from '../services/api';
 
 // ── ETA formatter ──────────────────────────────────────────────────────────
 const formatEta = (seconds) => {
@@ -217,6 +218,76 @@ export default function DonorTrackingView({
 
   // ── Dev controls ─────────────────────────────────────────────────
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const [gpsError, setGpsError] = useState(null);
+
+  // ── Real Device GPS Tracking ────────────────────────────────────
+  // When the donor is actively tracking, use navigator.geolocation.watchPosition
+  // to send real coordinates to the backend.
+  const watchIdRef = useRef(null);
+  const lastSentRef = useRef(0); // Throttle: timestamp of last sent update
+  const GPS_SEND_INTERVAL_MS = 3000; // Send at most every 3 seconds
+
+  useEffect(() => {
+    if (!isTracking || !requestDetails?.id) return;
+
+    // Retrieve donor ID from match or profile
+    const donorId = acceptedDonor?.donor_id || requestDetails?.donor_id;
+    if (!donorId) return;
+
+    if (!navigator.geolocation) {
+      setGpsError('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    const onSuccess = (position) => {
+      const now = Date.now();
+      if (now - lastSentRef.current < GPS_SEND_INTERVAL_MS) return; // Throttle
+      lastSentRef.current = now;
+
+      const { latitude, longitude, accuracy, speed } = position.coords;
+      setGpsError(null);
+
+      // Send to backend (fire-and-forget, non-blocking)
+      updateDonorLocation(
+        donorId,
+        latitude,
+        longitude,
+        requestDetails.id,
+        speed ? (speed * 3.6) : 35.0, // m/s to km/h, fallback 35
+        accuracy
+      ).catch(err => console.warn('[DonorTracking] Location send failed:', err));
+    };
+
+    const onError = (err) => {
+      switch (err.code) {
+        case err.PERMISSION_DENIED:
+          setGpsError('Location permission denied. Please enable location access.');
+          break;
+        case err.POSITION_UNAVAILABLE:
+          setGpsError('Location unavailable. Check device settings.');
+          break;
+        case err.TIMEOUT:
+          setGpsError('Location request timed out.');
+          break;
+        default:
+          setGpsError('Unable to get location.');
+      }
+    };
+
+    const id = navigator.geolocation.watchPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 2000,
+    });
+    watchIdRef.current = id;
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [isTracking, requestDetails?.id, acceptedDonor?.donor_id, requestDetails?.donor_id]);
 
   // Status info
   const statusInfo = useMemo(() => getStatusInfo(requestState), [requestState]);

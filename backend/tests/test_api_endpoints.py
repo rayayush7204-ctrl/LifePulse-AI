@@ -67,11 +67,12 @@ async def test_full_emergency_request_flow():
         assert len(matches) >= 1, "Matching engine did not find matches in time."
         match_id = matches[0]["match_id"]
 
-        # 3. Donor Accepts Match
+        # 3. Donor Accepts Match (use simulated mode for automated test)
         respond_res = await ac.post("/api/v1/donors/respond", json={
             "match_id": match_id,
             "action": "ACCEPTED",
-            "eta_minutes": 15
+            "eta_minutes": 15,
+            "mode": "simulated"
         })
         assert respond_res.status_code == 200
         assert respond_res.json()["match"]["status"] == "ACCEPTED"

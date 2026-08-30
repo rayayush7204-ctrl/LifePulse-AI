@@ -188,17 +188,20 @@ export async function parseVoiceSOS(transcript) {
 }
 
 
-export async function updateDonorLocation(donorId, latitude, longitude, requestId = null, speedKmh = 35.0) {
+export async function updateDonorLocation(donorId, latitude, longitude, requestId = null, speedKmh = 35.0, accuracy = null) {
   try {
+    const body = {
+      latitude,
+      longitude,
+      request_id: requestId,
+      speed_kmh: speedKmh,
+    };
+    if (accuracy !== null) body.accuracy = accuracy;
+
     const res = await fetch(`${API_BASE}/donors/location?donor_id=${donorId}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        latitude,
-        longitude,
-        request_id: requestId,
-        speed_kmh: speedKmh
-      })
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body)
     });
     if (res.ok) return await res.json();
     throw new Error('Failed to update location');
