@@ -15,7 +15,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { getCurrentPosition } from './services/geolocation';
 import { SectionErrorBoundary } from './components/ErrorBoundary';
 import { requestFirebaseNotificationPermission, subscribeToForegroundMessages } from './firebase';
-import { registerDeviceToken } from './services/api';
+import { registerDeviceToken, getBaseWsUrl } from './services/api';
 import IncomingEmergencyOverlay from './components/IncomingEmergencyOverlay';
 
 // ── GPS State Model ─────────────────────────────────────────────
@@ -245,15 +245,23 @@ function AppContent() {
     let ws = null;
     let reconnectTimeout = null;
     const connectUserWebSocket = () => {
-      const WS_BASE = (import.meta.env.VITE_API_URL || '').replace(/^http/, 'ws')
-                      || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
-
+      const WS_BASE = getBaseWsUrl();
       const wsUrl = `${WS_BASE}/api/v1/ws/user?token=${token}`;
+      console.log('[App] User WS connecting to:', wsUrl.replace(/token=.*/, 'token=***'));
       ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log('[App] User WS connection OPENED');
+      };
+
+      ws.onerror = (err) => {
+        console.error('[App] User WS connection ERROR:', err);
+      };
 
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
+          console.log('[App] User WS message received, type:', payload.type);
           if (payload.type === 'INCOMING_EMERGENCY') {
             console.log("[App] WebSocket Fallback INCOMING_EMERGENCY received:", payload.data);
             handleIncomingEmergency(payload.data);
@@ -263,7 +271,8 @@ function AppContent() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
+        console.log('[App] User WS connection CLOSED, code:', event.code, 'reason:', event.reason);
         // Simple reconnect logic for fallback
         reconnectTimeout = setTimeout(connectUserWebSocket, 5000);
       };

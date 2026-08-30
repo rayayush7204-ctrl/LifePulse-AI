@@ -5,6 +5,16 @@
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 
+export function getBaseWsUrl() {
+  const envApiUrl = import.meta.env.VITE_API_URL || '';
+  if (!envApiUrl) {
+    return (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+  }
+  // Strip /api/v1 from the end to get the root host URL
+  const rootUrl = envApiUrl.replace(/\/api\/v1\/?$/, '');
+  return rootUrl.replace(/^http/, 'ws');
+}
+
 // Client-side fail-open logic has been removed to strictly enforce real PostgreSQL data usage.
 
 // ── JWT Auth Helpers ────────────────────────────────────────────
