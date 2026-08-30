@@ -108,7 +108,31 @@ async def get_voice_script(request_id: str, donor_name: str = "Donor", repo: Dat
     script = generate_voice_agent_script(req, donor_name)
     return {"request_id": request_id, "donor_name": donor_name, "script": script}
 
-# WebSocket Gateway Endpoint
+# WebSocket Gateway Endpoints
+
+@app.websocket("/api/v1/ws/user")
+async def websocket_user_connection(websocket: WebSocket, token: str):
+    user_id = None
+    try:
+        from jose import jwt, JWTError
+        from app.api.auth import ALGORITHM
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+    except Exception as e:
+        logger.error(f"User WebSocket auth failed: {e}")
+
+    if not user_id:
+        await websocket.close(code=1008)
+        return
+
+    await manager.connect_user(websocket, user_id)
+    try:
+        while True:
+            # Keepalive listener
+            data = await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect_user(websocket, user_id)
+
 @app.websocket("/ws/requests/{request_id}")
 async def websocket_request_tracker(websocket: WebSocket, request_id: str, token: str = None):
     if token:

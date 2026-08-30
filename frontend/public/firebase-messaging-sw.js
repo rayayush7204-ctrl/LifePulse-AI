@@ -23,10 +23,44 @@ self.addEventListener('message', (event) => {
       const notificationTitle = payload.notification?.title || 'Emergency Blood Request';
       const notificationOptions = {
         body: payload.notification?.body || 'A new request matches your profile.',
-        icon: '/vite.svg'
+        icon: '/vite.svg',
+        data: payload.data
       };
 
       self.registration.showNotification(notificationTitle, notificationOptions);
     });
   }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const data = event.notification.data || {};
+  // Construct URL with match info if available
+  let url = '/';
+  if (data.type === 'EMERGENCY_REQUEST' && data.request_id) {
+    url = `/?incoming_request=${data.request_id}&match_id=${data.match_id}`;
+  }
+
+  const urlToOpen = new URL(url, self.location.origin).href;
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // If app is already open, focus it and optionally post a message to it
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.postMessage({
+            type: 'NOTIFICATION_CLICKED',
+            data: data
+          });
+          return client.focus();
+        }
+      }
+      // If no window is open, open one
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
+    })
+  );
 });

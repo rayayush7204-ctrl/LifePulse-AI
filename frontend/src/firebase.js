@@ -43,8 +43,23 @@ export const requestFirebaseNotificationPermission = async () => {
     }
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
+      // Properly register the service worker
+      const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+
+      // Wait for it to be ready
+      await navigator.serviceWorker.ready;
+
+      // Post the public config so the SW can initialize Firebase
+      if (registration.active) {
+        registration.active.postMessage({
+          type: 'FIREBASE_CONFIG',
+          config: firebaseConfig
+        });
+      }
+
       const token = await getToken(msg, { 
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY 
+        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        serviceWorkerRegistration: registration
       });
       return token;
     } else {
@@ -57,23 +72,16 @@ export const requestFirebaseNotificationPermission = async () => {
   }
 };
 
-export const onMessageListener = () =>
-  new Promise((resolve, reject) => {
-    getMessagingSafe()
-      .then((msg) => {
-        if (!msg) {
-          // FCM not available — resolve with null so callers don't hang forever
-          resolve(null);
-          return;
-        }
-        onMessage(msg, (payload) => {
-          resolve(payload);
-        });
-      })
-      .catch((err) => {
-        console.warn("[Firebase] onMessageListener setup failed:", err);
-        reject(err);
-      });
-  });
+export const subscribeToForegroundMessages = async (callback) => {
+  try {
+    const msg = await getMessagingSafe();
+    if (msg) {
+      return onMessage(msg, callback);
+    }
+  } catch (err) {
+    console.warn("[Firebase] Foreground subscription failed:", err);
+  }
+  return () => {}; // return no-op unsubscribe if failed
+};
 
 export { messaging };

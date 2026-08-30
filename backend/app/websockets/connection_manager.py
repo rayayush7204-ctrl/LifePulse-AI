@@ -36,6 +36,8 @@ class ConnectionManager:
         self.active_connections: Dict[str, List[WebSocket]] = {}
         # Maps request_id -> asyncio.Event for initial connection sync
         self.connection_events: Dict[str, asyncio.Event] = {}
+        # Maps user_id -> list of active WebSocket connections for personal/fallback notifications
+        self.user_connections: Dict[str, List[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, request_id: str):
         await websocket.accept()
@@ -109,5 +111,37 @@ class ConnectionManager:
     def get_connection_count(self, request_id: str) -> int:
         """Returns the number of active connections for a given request."""
         return len(self.active_connections.get(request_id, []))
+
+    # ── User Connections (for Personal Fallback Notifications) ──
+
+    async def connect_user(self, websocket: WebSocket, user_id: str):
+        await websocket.accept()
+        self.user_connections.setdefault(user_id, []).append(websocket)
+        logger.info(f"[WS CONNECTED] User {user_id} connected for personal notifications.")
+
+    def disconnect_user(self, websocket: WebSocket, user_id: str):
+        if user_id in self.user_connections:
+            if websocket in self.user_connections[user_id]:
+                self.user_connections[user_id].remove(websocket)
+            if not self.user_connections[user_id]:
+                del self.user_connections[user_id]
+        logger.info(f"[WS DISCONNECTED] User {user_id} disconnected.")
+
+    async def send_personal_message(self, user_id: str, payload: Dict[str, Any]):
+        """
+        Sends an event payload specifically to a user's authenticated connections.
+        Used for fallback push notifications (e.g., INCOMING_EMERGENCY).
+        """
+        if user_id in self.user_connections:
+            disconnected = []
+            for ws in self.user_connections[user_id]:
+                try:
+                    await ws.send_json(payload)
+                except Exception as e:
+                    logger.error(f"[WS ERROR] Personal message failed for user {user_id}: {e}")
+                    disconnected.append(ws)
+            for ws in disconnected:
+                self.disconnect_user(ws, user_id)
+
 
 manager = ConnectionManager()

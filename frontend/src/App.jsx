@@ -14,8 +14,9 @@ import { ToastProvider, useToast } from './components/NotificationToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getCurrentPosition } from './services/geolocation';
 import { SectionErrorBoundary } from './components/ErrorBoundary';
-import { requestFirebaseNotificationPermission } from './firebase';
+import { requestFirebaseNotificationPermission, subscribeToForegroundMessages } from './firebase';
 import { registerDeviceToken } from './services/api';
+import IncomingEmergencyOverlay from './components/IncomingEmergencyOverlay';
 
 // ── GPS State Model ─────────────────────────────────────────────
 export const GPS_STATES = {
@@ -146,6 +147,137 @@ function AppContent() {
     registerFCM();
     return () => { isMounted = false; };
   }, [user]);
+
+  // ── Unified Incoming Emergency Handler ─────────────────────────────
+  const [incomingEmergency, setIncomingEmergency] = useState(null);
+
+  const handleIncomingEmergency = useCallback((payloadData) => {
+    // Only show to Donors (requesters should not receive or see this)
+    if (user?.role === 'REQUESTER') return;
+
+    // Normalize payload
+    if (payloadData && payloadData.type === 'EMERGENCY_REQUEST') {
+      const matchId = payloadData.match_id;
+      const requestId = payloadData.request_id;
+      if (!matchId) return;
+
+      const requestDetails = {
+        id: requestId,
+        blood_type: payloadData.blood_type || 'Unknown',
+        units: payloadData.units || 1,
+        location_name: payloadData.location_name || 'Hospital',
+        latitude: parseFloat(payloadData.latitude),
+        longitude: parseFloat(payloadData.longitude),
+      };
+
+      setIncomingEmergency({ matchId, requestDetails });
+    }
+  }, [user]);
+
+  // 1. Listen for background notification clicks from Service Worker
+  useEffect(() => {
+    const handleServiceWorkerMessage = (event) => {
+      if (event.data && event.data.type === 'NOTIFICATION_CLICKED') {
+        console.log('[App] Received background notification click data:', event.data.data);
+        handleIncomingEmergency(event.data.data);
+      }
+    };
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
+    return () => {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
+    };
+  }, [handleIncomingEmergency]);
+
+  // 1b. Check URL params for background click navigation
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const incomingReq = searchParams.get('incoming_request');
+    const incomingMatch = searchParams.get('match_id');
+    if (incomingReq && incomingMatch) {
+      // Clean up URL
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      // Construct a payload
+      handleIncomingEmergency({
+        type: 'EMERGENCY_REQUEST',
+        request_id: incomingReq,
+        match_id: incomingMatch,
+      });
+    }
+  }, [location.search, handleIncomingEmergency]);
+
+  // 2. Listen for FCM Foreground Messages
+  useEffect(() => {
+    if (!user) return;
+    let unsubscribe = null;
+    let isMounted = true;
+
+    subscribeToForegroundMessages((payload) => {
+      if (!isMounted) return;
+      console.log("[App] Foreground FCM message received:", payload);
+      if (payload.data) {
+        handleIncomingEmergency(payload.data);
+      }
+    }).then((unsub) => {
+      if (isMounted) {
+        unsubscribe = unsub;
+      } else if (unsub) {
+        unsub();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, handleIncomingEmergency]);
+
+  // 3. Fallback Authenticated User WebSocket Connection
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    let ws = null;
+    let reconnectTimeout = null;
+    const connectUserWebSocket = () => {
+      const WS_BASE = (import.meta.env.VITE_API_URL || '').replace(/^http/, 'ws')
+                      || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+
+      const wsUrl = `${WS_BASE}/api/v1/ws/user?token=${token}`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'INCOMING_EMERGENCY') {
+            console.log("[App] WebSocket Fallback INCOMING_EMERGENCY received:", payload.data);
+            handleIncomingEmergency(payload.data);
+          }
+        } catch (err) {
+          console.error("[App] User WS parsing error:", err);
+        }
+      };
+
+      ws.onclose = () => {
+        // Simple reconnect logic for fallback
+        reconnectTimeout = setTimeout(connectUserWebSocket, 5000);
+      };
+    };
+
+    connectUserWebSocket();
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null; // prevent reconnect loop on unmount
+        ws.close();
+      }
+    };
+  }, [user, handleIncomingEmergency]);
 
   const isNavigatingRef = useRef(false);
   const handleSetActiveTab = useCallback((tab) => {

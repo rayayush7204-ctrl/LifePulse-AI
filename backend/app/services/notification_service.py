@@ -11,6 +11,7 @@ import os
 from datetime import datetime, timezone
 from app.config import settings
 from app.database import SessionLocal, DatabaseRepository
+from app.websockets.connection_manager import manager
 
 import firebase_admin
 from firebase_admin import credentials, messaging
@@ -146,9 +147,24 @@ class NotificationService:
                     "match_id": match_id,
                     "status": "SENT" if status in ["SENT", "SIMULATED_DELIVERED"] else "FAILED"
                 })
-        
+
         self.sent_log.append(payload)
         logger.info(f"[PUSH] Sent emergency alert to donor {donor.get('name')} ({donor.get('phone')}) for match {match_id} (Status: {status})")
+
+        # Real-Time WebSocket Fallback
+        if user_id:
+            try:
+                ws_payload = {
+                    "type": "INCOMING_EMERGENCY",
+                    "data": payload["data"]
+                }
+                # Use asyncio.create_task to not block the current flow
+                import asyncio
+                asyncio.create_task(manager.send_personal_message(user_id, ws_payload))
+                logger.info(f"Dispatched WebSocket INCOMING_EMERGENCY to user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to dispatch WebSocket personal message: {e}")
+
         return payload
 
     async def send_exotel_sms(

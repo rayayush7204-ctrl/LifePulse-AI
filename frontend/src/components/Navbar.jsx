@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Droplet, Activity, ShieldCheck, HeartHandshake, Building2, Smartphone, Heart, Sparkles, Wifi, WifiOff, Bell, LogIn, LogOut, User, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { requestFirebaseNotificationPermission, onMessageListener } from '../firebase';
+import { requestFirebaseNotificationPermission } from '../firebase';
 import { registerDeviceToken } from '../services/api';
 
 const isSimulatorEnabled = import.meta.env.VITE_APP_ENV !== 'production';
@@ -28,21 +28,7 @@ export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenD
 
   useEffect(() => {
     if (!user) return;
-    let isMounted = true;
-    onMessageListener()
-      .then((payload) => {
-        if (!isMounted) return;
-        // payload is null when FCM isn't supported (e.g. iOS Safari)
-        if (payload) {
-          setNotifications(prev => prev + 1);
-          console.log("Foreground message:", payload);
-        }
-      })
-      .catch((err) => {
-        // Non-fatal — FCM simply isn't available on this device
-        console.warn('[Navbar] Firebase message listener unavailable:', err);
-      });
-    return () => { isMounted = false; };
+
   }, [user]);
 
   const handleEnableNotifications = async () => {
