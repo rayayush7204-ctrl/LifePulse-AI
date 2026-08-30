@@ -12,7 +12,9 @@
  */
 import React, { useMemo, useCallback, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, XCircle, AlertTriangle, Home, Loader2, Ban } from 'lucide-react';
+import { Wifi, WifiOff, XCircle, Phone, Navigation, ShieldCheck, Heart, User, Activity, MapPin, AlertTriangle, Home, Loader2, Ban } from 'lucide-react';
+
+const isSimulatorEnabled = import.meta.env.VITE_APP_ENV !== 'production';
 import { motion } from 'framer-motion';
 import { cancelRequest, getRequestStatus } from '../services/api';
 import { useToast } from './NotificationToast';
@@ -407,13 +409,15 @@ export default function EmergencyLiveTracker({ requestData, onSimulateDonor }) {
                 </button>
               )}
               <ConnectionPill connectionState={connectionState} />
-              <button
-                onClick={handleSimulate}
-                className="px-4 py-2 bg-slate-800/80 backdrop-blur-md text-xs text-white
-                           rounded-full hover:bg-slate-700 border border-slate-600/50 transition-colors"
-              >
-                Open Donor Simulator
-              </button>
+              {isSimulatorEnabled && (
+                <button
+                  onClick={handleSimulate}
+                  className="px-4 py-2 bg-slate-800/80 backdrop-blur-md text-xs text-white
+                             rounded-full hover:bg-slate-700 border border-slate-600/50 transition-colors"
+                >
+                  Open Donor Simulator
+                </button>
+              )}
             </div>
           </div>
         </div>

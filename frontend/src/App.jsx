@@ -14,6 +14,8 @@ import { ToastProvider, useToast } from './components/NotificationToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getCurrentPosition } from './services/geolocation';
 import { SectionErrorBoundary } from './components/ErrorBoundary';
+import { requestFirebaseNotificationPermission } from './firebase';
+import { registerDeviceToken } from './services/api';
 
 // ── GPS State Model ─────────────────────────────────────────────
 export const GPS_STATES = {
@@ -93,7 +95,7 @@ function GPSProvider({ children }) {
 
 // ── Main App ────────────────────────────────────────────────────
 function AppContent() {
-  const { showAuthModal, setShowAuthModal } = useAuth();
+  const { user, showAuthModal, setShowAuthModal } = useAuth();
   const [activeRequestData, setActiveRequestData] = useState(null);
   const [isDonorPortalOpen, setIsDonorPortalOpen] = useState(false);
   const [simulatedMatchId, setSimulatedMatchId] = useState(null);
@@ -117,6 +119,33 @@ function AppContent() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // ── FCM Token Registration ───────────────────────────────────────
+  const hasRegisteredFCM = useRef(false);
+  useEffect(() => {
+    if (!user) {
+      hasRegisteredFCM.current = false;
+      return;
+    }
+    // Only register once per session to avoid duplicate requests
+    if (hasRegisteredFCM.current) return;
+    let isMounted = true;
+    const registerFCM = async () => {
+      try {
+        const token = await requestFirebaseNotificationPermission();
+        if (token && isMounted) {
+          await registerDeviceToken(token, 'web');
+          hasRegisteredFCM.current = true;
+          console.log('[App] Successfully registered FCM device token.');
+        }
+      } catch (err) {
+        console.warn('[App] FCM token registration failed or denied:', err);
+      }
+    };
+
+    registerFCM();
+    return () => { isMounted = false; };
+  }, [user]);
 
   const isNavigatingRef = useRef(false);
   const handleSetActiveTab = useCallback((tab) => {

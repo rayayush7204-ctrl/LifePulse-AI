@@ -6,6 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { requestFirebaseNotificationPermission, onMessageListener } from '../firebase';
 import { registerDeviceToken } from '../services/api';
 
+const isSimulatorEnabled = import.meta.env.VITE_APP_ENV !== 'production';
+
 export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenDonorPortal }) {
   const { user, hasDonorProfile, logout, setShowAuthModal } = useAuth();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -185,13 +187,15 @@ export default function Navbar({ activeTab, setActiveTab, activeRequest, onOpenD
               </button>
 
               {/* Simulate Donor Button */}
-              <button
-                onClick={onOpenDonorPortal}
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-full bg-blood-500 text-white hover:bg-blood-600 transition-colors hover-lift"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>Simulate Donor</span>
-              </button>
+              {isSimulatorEnabled && (
+                <button
+                  onClick={onOpenDonorPortal}
+                  className="hidden sm:flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-full bg-blood-500 text-white hover:bg-blood-600 transition-colors hover-lift"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Simulate Donor</span>
+                </button>
+              )}
 
               {/* Auth: User Profile or Login Button */}
               {user ? (

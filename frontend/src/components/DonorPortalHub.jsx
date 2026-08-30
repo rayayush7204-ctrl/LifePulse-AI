@@ -7,6 +7,7 @@ import { useToast } from './NotificationToast';
 import { reverseGeocode } from '../services/geolocation';
 import NearbyRequestsFeed from './NearbyRequestsFeed';
 
+const isSimulatorEnabled = import.meta.env.VITE_APP_ENV !== 'production';
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
 
 // Blood type compatibility chart
@@ -159,10 +160,12 @@ export default function DonorPortalHub({ onSimulateAlert }) {
           >
             {isAvailable ? <><Eye className="w-4 h-4" /> Available</> : <><EyeOff className="w-4 h-4" /> Hidden</>}
           </button>
-          <button onClick={onSimulateAlert}
-            className="flex-1 md:flex-none px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs rounded-full flex items-center justify-center gap-2 transition hover-lift">
-            <Smartphone className="w-4 h-4" /> Simulate Alert
-          </button>
+          {isSimulatorEnabled && (
+            <button onClick={onSimulateAlert}
+              className="flex-1 md:flex-none px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white font-bold text-xs rounded-full flex items-center justify-center gap-2 transition hover-lift">
+              <Smartphone className="w-4 h-4" /> Simulate Alert
+            </button>
+          )}
         </div>
       </div>
 
