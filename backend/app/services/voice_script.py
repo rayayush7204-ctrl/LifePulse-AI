@@ -10,7 +10,7 @@ def generate_voice_agent_script(request: Dict[str, Any], donor_name: str) -> str
     Generates IVR audio script tailored to blood type, hospital, and urgency level.
     """
     blood_type = request.get("blood_type", "compatible")
-    hospital = request.get("hospital_name", "the local hospital")
+    hospital = request.get("location_name", "the local hospital")
     urgency = request.get("urgency_level", "HIGH")
     units = request.get("units_needed", 1)
 

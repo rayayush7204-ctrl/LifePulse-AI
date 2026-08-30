@@ -83,7 +83,7 @@ async def test_fcm_send_success(mock_firebase):
     repo.add_device_token(user["id"], token)
     
     donor = {"id": "d-123", "user_id": user["id"], "phone": "+123", "name": "Test Donor"}
-    request = {"id": "r-123", "blood_type": "O+", "hospital_name": "UCSF", "urgency_level": "CRITICAL"}
+    request = {"id": "r-123", "blood_type": "O+", "location_name": "UCSF", "urgency_level": "CRITICAL"}
     
     res = await notification_service.send_emergency_push_notification(donor, request, "m-123")
     assert res["status"] == "SENT"
@@ -122,7 +122,7 @@ async def test_fcm_send_invalid_token_cleanup(mock_firebase):
     mock_firebase.return_value = failure_response
     
     donor = {"id": "d-123", "user_id": user["id"], "phone": "+123", "name": "Test Donor"}
-    request = {"id": "r-123", "blood_type": "O+", "hospital_name": "UCSF"}
+    request = {"id": "r-123", "blood_type": "O+", "location_name": "UCSF"}
     
     res = await notification_service.send_emergency_push_notification(donor, request, "m-123")
     assert res["status"] == "FAILED"
@@ -150,7 +150,7 @@ async def test_fcm_not_configured(monkeypatch):
     repo.add_device_token(user["id"], token)
     
     donor = {"id": "d-123", "user_id": user["id"], "phone": "+123", "name": "Test Donor"}
-    request = {"id": "r-123", "blood_type": "O+", "hospital_name": "UCSF"}
+    request = {"id": "r-123", "blood_type": "O+", "location_name": "UCSF"}
     
     res = await notification_service.send_emergency_push_notification(donor, request, "m-123")
     assert res["status"] == "SIMULATED_DELIVERED"

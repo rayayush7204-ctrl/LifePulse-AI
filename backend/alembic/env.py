@@ -24,8 +24,6 @@ config = context.config
 db_url = settings.DATABASE_URL
 if db_url.startswith("postgresql+asyncpg://"):
     db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-elif db_url.startswith("sqlite"):
-    db_url = "postgresql://postgres:postgres@localhost:5432/blood_donor"
 
 config.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 

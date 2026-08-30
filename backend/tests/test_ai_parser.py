@@ -55,7 +55,7 @@ async def test_parse_voice_sos_transcript_spoken_dictation():
     assert res["units_needed"] == 3
     assert res["urgency_level"] == "CRITICAL"
     assert res["is_voice_sos"] is True
-    assert res["hospital_name"] == "UCSF hospital"
+    assert res["location_name"] == "UCSF hospital"
 
 @pytest.mark.asyncio
 async def test_parse_voice_sos_spoken_ab_minus():

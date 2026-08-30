@@ -45,7 +45,7 @@ async def _create_active_request(ac: AsyncClient, headers: dict) -> str:
     payload = {
         "blood_type": "O-",
         "units_needed": 2,
-        "hospital_name": "Test Hospital",
+        "location_name": "Test Hospital",
         "urgency_level": "CRITICAL",
         "latitude": 37.7749,
         "longitude": -122.4194
@@ -102,7 +102,7 @@ async def test_legacy_request_authorization():
         payload = {
             "blood_type": "A+",
             "units_needed": 1,
-            "hospital_name": "Legacy Hospital",
+            "location_name": "Legacy Hospital",
             "urgency_level": "HIGH",
             "latitude": 37.0,
             "longitude": -122.0

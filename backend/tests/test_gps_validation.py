@@ -22,7 +22,7 @@ def _base_payload(**overrides):
     base = {
         "patient_name": "GPS Test Patient",
         "requester_phone": "+14155559999",
-        "hospital_name": "GPS Test Hospital",
+        "location_name": "GPS Test Hospital",
         "blood_type": "O-",
         "donation_type": "WHOLE_BLOOD",
         "units_needed": 2,

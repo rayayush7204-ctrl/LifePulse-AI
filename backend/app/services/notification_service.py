@@ -61,12 +61,12 @@ class NotificationService:
         Sends high-priority Push Notification to Donor App (via FCM or simulation).
         """
         title = f"🚨 URGENT: {request.get('blood_type')} Blood Needed Nearby!"
-        body = f"Urgent request at {request.get('hospital_name')}. Tap to respond."
+        body = f"Urgent request at {request.get('location_name')}. Tap to respond."
         data = {
             "request_id": str(request.get("id")),
             "match_id": str(match_id),
             "blood_type": str(request.get("blood_type")),
-            "hospital": str(request.get("hospital_name")),
+            "location": str(request.get("location_name")),
             "urgency": str(request.get("urgency_level")),
             "type": "EMERGENCY_REQUEST"
         }
@@ -162,7 +162,7 @@ class NotificationService:
         Dispatches SMS blast via Exotel API.
         """
         sms_text = custom_message or (
-            f"EMERGENCY BLOOD ALERT: {request.get('blood_type')} needed at {request.get('hospital_name')}. "
+            f"EMERGENCY BLOOD ALERT: {request.get('blood_type')} needed at {request.get('location_name')}. "
             f"Please respond immediately: {settings.API_V1_STR}/donors/respond/{match_id}/accept"
         )
 
@@ -214,7 +214,7 @@ class NotificationService:
         Triggers an automated Exotel IVR Voice Call to unresponsive donors.
         """
         call_text = script_text or (
-            f"Emergency Alert. {request.get('blood_type')} blood is urgently required at {request.get('hospital_name')}. "
+            f"Emergency Alert. {request.get('blood_type')} blood is urgently required at {request.get('location_name')}. "
             "Press 1 to confirm donation. Press 9 to decline."
         )
 

@@ -58,11 +58,11 @@ def parse_with_regex_fallback(text: str) -> Dict[str, Any]:
     else:
         urgency = "MEDIUM"
 
-    # 4. Extract Hospital Name heuristic from spoken text ("at <Hospital Name>", "in <Hospital Name>")
-    hospital_name = "Hospital (Extracted from Notes)"
-    hosp_match = re.search(r"(?:at|in|near)\s+([A-Z0-9\s\.\-']+\s+(?:Hospital|Medical Center|Clinic|Infirmary|ICU))", clean_text, re.IGNORECASE)
-    if hosp_match:
-        hospital_name = hosp_match.group(1).strip()
+    # 4. Extract Location Name heuristic from spoken text ("at <Location Name>", "in <Location Name>")
+    location_name = "Location (Extracted from Notes)"
+    loc_match = re.search(r"(?:at|in|near)\s+([A-Z0-9\s\.\-']+\s+(?:Hospital|Medical Center|Clinic|Infirmary|ICU|Station|Road|Street))", clean_text, re.IGNORECASE)
+    if loc_match:
+        location_name = loc_match.group(1).strip()
 
     # Flag for human verification if blood type was not unambiguously found
     needs_review = extracted_bt is None
@@ -71,7 +71,7 @@ def parse_with_regex_fallback(text: str) -> Dict[str, Any]:
         "blood_type": extracted_bt or "O-",  # fallback default with review flag
         "units_needed": units,
         "urgency_level": urgency,
-        "hospital_name": hospital_name,
+        "location_name": location_name,
         "donation_type": "WHOLE_BLOOD",
         "confidence_score": 0.95 if extracted_bt else 0.40,
         "needs_human_verification": needs_review,
@@ -94,7 +94,7 @@ async def parse_emergency_request_text(text: str) -> Dict[str, Any]:
     - blood_type: Must be one of ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"] or null if ambiguous/missing.
     - units_needed: Integer (1-10), default to 2 if unspecified.
     - urgency_level: Must be "CRITICAL", "HIGH", or "MEDIUM".
-    - hospital_name: Extracted hospital/clinic name or "Unknown Hospital".
+    - location_name: Extracted hospital/clinic name or "Unknown Location".
     - donation_type: Must be "WHOLE_BLOOD", "RBC", "PLASMA", or "PLATELETS".
 
     CRITICAL RULE: If the blood group is ambiguous or absent, set needs_human_verification to true.
@@ -104,7 +104,7 @@ async def parse_emergency_request_text(text: str) -> Dict[str, Any]:
       "blood_type": "O-",
       "units_needed": 2,
       "urgency_level": "CRITICAL",
-      "hospital_name": "City General Hospital",
+      "location_name": "City General Hospital",
       "donation_type": "WHOLE_BLOOD",
       "confidence_score": 0.95,
       "needs_human_verification": false

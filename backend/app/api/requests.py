@@ -183,7 +183,7 @@ async def get_shareable_request_data(request_id: str, repo: DatabaseRepository =
         "request_id": req.get("id"),
         "blood_type": req.get("blood_type"),
         "units_needed": req.get("units_needed"),
-        "hospital_name": req.get("hospital_name"),
+        "location_name": req.get("location_name"),
         "urgency_level": req.get("urgency_level"),
         "status": req.get("status"),
         "created_at": req.get("created_at"),

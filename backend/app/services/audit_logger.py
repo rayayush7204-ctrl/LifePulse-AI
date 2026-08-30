@@ -33,7 +33,7 @@ class AuditLogger:
             "request_snapshot": {
                 "blood_type": request.get("blood_type"),
                 "units_needed": request.get("units_needed"),
-                "hospital_name": request.get("hospital_name"),
+                "location_name": request.get("location_name"),
                 "urgency_level": request.get("urgency_level"),
                 "latitude": request.get("latitude"),
                 "longitude": request.get("longitude")

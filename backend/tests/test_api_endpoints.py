@@ -37,7 +37,7 @@ async def test_full_emergency_request_flow():
         req_payload = {
             "patient_name": "Test Patient",
             "requester_phone": "+14155550999",
-            "hospital_name": "SF General Hospital",
+            "location_name": "SF General Hospital",
             "blood_type": "O-",
             "donation_type": "WHOLE_BLOOD",
             "units_needed": 1,
@@ -132,7 +132,7 @@ async def test_emergency_request_normalization_and_fail_open():
         req_payload = {
             "patient_name": "",
             "requester_phone": "",
-            "hospital_name": "",
+            "location_name": "",
             "blood_type": "o negative",  # non-standard string
             "donation_type": "whole blood",
             "units_needed": "3",         # stringified int
