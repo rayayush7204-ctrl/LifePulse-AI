@@ -36,36 +36,42 @@ async function getMessagingSafe() {
 
 export const requestFirebaseNotificationPermission = async () => {
   try {
+    if (!('Notification' in window)) {
+      console.warn("Notifications not supported in this browser.");
+      return null;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.warn("Notification permission denied.");
+      return null;
+    }
+
     const msg = await getMessagingSafe();
     if (!msg) {
       console.warn("[Firebase] Push notifications are not supported on this browser/device.");
       return null;
     }
-    const permission = await Notification.requestPermission();
-    if (permission === 'granted') {
-      // Properly register the service worker
-      const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
 
-      // Wait for it to be ready
-      await navigator.serviceWorker.ready;
+    // Properly register the service worker
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
 
-      // Post the public config so the SW can initialize Firebase
-      if (registration.active) {
-        registration.active.postMessage({
-          type: 'FIREBASE_CONFIG',
-          config: firebaseConfig
-        });
-      }
+    // Wait for it to be ready
+    await navigator.serviceWorker.ready;
 
-      const token = await getToken(msg, { 
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-        serviceWorkerRegistration: registration
+    // Post the public config so the SW can initialize Firebase
+    if (registration.active) {
+      registration.active.postMessage({
+        type: 'FIREBASE_CONFIG',
+        config: firebaseConfig
       });
-      return token;
-    } else {
-      console.warn("Notification permission denied.");
-      return null;
     }
+
+    const token = await getToken(msg, { 
+      vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+      serviceWorkerRegistration: registration
+    });
+    return token;
   } catch (error) {
     console.error("Error getting notification permission or token:", error);
     return null;
