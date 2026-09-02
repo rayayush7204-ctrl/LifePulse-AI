@@ -111,20 +111,27 @@ async def get_voice_script(request_id: str, donor_name: str = "Donor", repo: Dat
 # WebSocket Gateway Endpoints
 
 @app.websocket("/api/v1/ws/user")
-async def websocket_user_connection(websocket: WebSocket, token: str):
+async def websocket_user_connection(websocket: WebSocket, token: str = None):
+    logger.info(f"[WS DIAGNOSTICS] websocket_user_connection entered. Token present: {bool(token)}")
     user_id = None
     try:
-        from jose import jwt, JWTError
-        from app.api.auth import ALGORITHM
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
+        if token:
+            from jose import jwt, JWTError
+            from app.api.auth import ALGORITHM
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("sub")
+            logger.info(f"[WS DIAGNOSTICS] JWT decoded successfully. user_id: {user_id}")
+        else:
+            logger.warning("[WS DIAGNOSTICS] Token was None")
     except Exception as e:
-        logger.error(f"User WebSocket auth failed: {e}")
+        logger.error(f"[WS DIAGNOSTICS] User WebSocket auth failed. Exception type: {type(e).__name__}, Message: {e}")
 
     if not user_id:
+        logger.warning("[WS DIAGNOSTICS] Missing user_id, closing connection with 1008")
         await websocket.close(code=1008)
         return
 
+    logger.info(f"[WS DIAGNOSTICS] Accepting connection for user {user_id}")
     await manager.connect_user(websocket, user_id)
     try:
         while True:
