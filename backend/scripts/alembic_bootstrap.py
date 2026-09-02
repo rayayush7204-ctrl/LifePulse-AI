@@ -88,16 +88,21 @@ def bootstrap():
         columns = [c["name"] for c in inspector.get_columns("emergency_requests")]
         
         # Verify the location overhaul state
-        expected_columns = ["location_name", "location_address", "location_source"]
-        missing_cols = [c for c in expected_columns if c not in columns]
-        if missing_cols:
-             raise RuntimeError(f"Database schema mismatch: emergency_requests missing columns: {missing_cols}")
-             
-        if "hospital_name" in columns:
-             raise RuntimeError("Database schema mismatch: emergency_requests still has hospital_name column (not at head).")
+        has_location_cols = all(c in columns for c in ["location_name", "location_address", "location_source"])
+        has_hospital_col = "hospital_name" in columns
 
-        print(f"[alembic_bootstrap] Schema verified as equivalent to {PRE_ALEMBIC_HEAD}.")
-        print(f"[alembic_bootstrap] Stamping revision {PRE_ALEMBIC_HEAD} without running migrations...")
+        target_revision = None
+
+        if not has_location_cols and has_hospital_col:
+            print("[alembic_bootstrap] Detected original schema (pre-location migration).")
+            target_revision = "001_initial_schema"
+        elif has_location_cols and not has_hospital_col:
+            print("[alembic_bootstrap] Detected head schema (post-location migration).")
+            target_revision = "4cba4d66e283"
+        else:
+            raise RuntimeError(f"Database schema mismatch: emergency_requests columns match neither known state. Columns found: {columns}")
+
+        print(f"[alembic_bootstrap] Stamping revision {target_revision} without running migrations...")
 
         from alembic.config import Config
         from alembic import command
@@ -111,8 +116,8 @@ def bootstrap():
             db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
         alembic_cfg.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
 
-        command.stamp(alembic_cfg, PRE_ALEMBIC_HEAD)
-        print(f"[alembic_bootstrap] Successfully stamped {PRE_ALEMBIC_HEAD}.")
+        command.stamp(alembic_cfg, target_revision)
+        print(f"[alembic_bootstrap] Successfully stamped {target_revision}.")
         return "stamped"
 
     # Case 3: Empty database — let alembic upgrade head handle it
