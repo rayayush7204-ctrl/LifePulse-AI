@@ -119,7 +119,18 @@ class MatchingEngine:
             # Exclude donors who have already matched (withdrawn, active, or declined)
             existing_matches = repo.get_matches_for_request(request_id)
             excluded_donor_ids = {m["donor_id"] for m in existing_matches if m.get("status") not in ["CANCELLED"]}
-            all_donors = [d for d in all_donors_raw if d["id"] not in excluded_donor_ids]
+            
+            # Exclude the requester's own donor profile if applicable
+            requester_uid = request.get("requester_user_id")
+            
+            all_donors = []
+            for d in all_donors_raw:
+                if d["id"] in excluded_donor_ids:
+                    continue
+                if requester_uid and d.get("user_id") == requester_uid:
+                    logger.info(f"[{request_id}] Excluded requester-owned donor profile from matching: donor_id={d['id']}, user_id={d['user_id']}")
+                    continue
+                all_donors.append(d)
 
             total_count = len(all_donors)
             
