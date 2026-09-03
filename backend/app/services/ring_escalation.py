@@ -61,14 +61,19 @@ class RingEscalationService:
             await asyncio.sleep(1)
 
         # Timeout reached! Escalate.
+        matches_to_notify = []
+        request_dict = None
+        next_ring = current_ring + 1
+
         with SessionLocal() as session:
             repo = DatabaseRepository(session)
             req = repo.get_request(request_id)
             if not req or req["status"] != f"RING{current_ring}":
                 return
             
+            request_dict = dict(req)
+            
             # Check if there are donors in the next ring
-            next_ring = current_ring + 1
             matches = repo.get_matches_for_request(request_id)
             next_ring_matches = [m for m in matches if m["ring_number"] == next_ring]
 
@@ -76,6 +81,11 @@ class RingEscalationService:
                 # Update status of these matches to NOTIFIED
                 for m in next_ring_matches:
                     repo.update_match_status(m["match_id"], "NOTIFIED")
+                    if m.get("donor"):
+                        matches_to_notify.append({
+                            "donor": m["donor"],
+                            "match_id": m["match_id"]
+                        })
                 
                 new_state_str = f"RING{next_ring}"
                 new_state = EmergencyState(new_state_str) if new_state_str in [e.value for e in EmergencyState] else EmergencyState.WAITING
@@ -98,3 +108,22 @@ class RingEscalationService:
                     "All donor rings exhausted. Waiting for any available donor.",
                     {"step": "exhausted"}
                 )
+
+        # ── Dispatch Notifications Outside DB Context ────────────
+        if matches_to_notify and request_dict:
+            from app.services.notification_service import notification_service
+            for item in matches_to_notify:
+                d_user = item["donor"].get("user_id")
+                d_id = item["donor"].get("id")
+                m_id = item["match_id"]
+                logger.info(f"Dispatching Ring {next_ring} notification: request_id={request_id}, donor_id={d_id}, user_id={d_user}, match_id={m_id}")
+                try:
+                    res = await notification_service.send_emergency_push_notification(
+                        item["donor"],
+                        request_dict,
+                        m_id
+                    )
+                    logger.info(f"Notification result for {m_id}: FCM={res.get('status')}, success={res.get('fcm_success_count', 0)}, failure={res.get('fcm_failure_count', 0)}")
+                except Exception as e:
+                    logger.error(f"Notification dispatch failed for match {m_id}: {e}")
+

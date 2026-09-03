@@ -281,6 +281,8 @@ class MatchingEngine:
                 logger.info(f"[Matching {request_id}] Cancelled before saving matches. Aborting.")
                 return
 
+            ring_1_matches_to_notify = []
+
             # 4. Save Matches to DB
             for rank, donor in enumerate(ranked_donors):
                 # Put top 5 in Ring 1, next 5 in Ring 2, etc.
@@ -296,7 +298,13 @@ class MatchingEngine:
                     "donor_latitude": donor["latitude"],
                     "donor_longitude": donor["longitude"]
                 }
-                repo.add_match(match_data)
+                saved_match = repo.add_match(match_data)
+
+                if ring == 1:
+                    ring_1_matches_to_notify.append({
+                        "donor": donor,
+                        "match_id": saved_match["match_id"]
+                    })
                 
                 repo.add_audit_log({
                     "request_id": request_id,
@@ -318,6 +326,24 @@ class MatchingEngine:
                 "label": f"Broadcasting Ring 1 to top {min(5, len(ranked_donors))} donors..."
             }
         )
+
+        # ── Dispatch Ring 1 Notifications Outside DB Context ───
+        if ring_1_matches_to_notify:
+            from app.services.notification_service import notification_service
+            for item in ring_1_matches_to_notify:
+                d_user = item["donor"].get("user_id")
+                d_id = item["donor"].get("id")
+                m_id = item["match_id"]
+                logger.info(f"Dispatching Ring 1 notification: request_id={request_id}, donor_id={d_id}, user_id={d_user}, match_id={m_id}")
+                try:
+                    res = await notification_service.send_emergency_push_notification(
+                        item["donor"],
+                        request,
+                        m_id
+                    )
+                    logger.info(f"Notification result for {m_id}: FCM={res.get('status')}, success={res.get('fcm_success_count', 0)}, failure={res.get('fcm_failure_count', 0)}")
+                except Exception as e:
+                    logger.error(f"Notification dispatch failed for match {m_id}: {e}")
 
         # ── Cancellation guard: before Ring 1 escalation ───────
         if cls._is_cancelled(request_id):
