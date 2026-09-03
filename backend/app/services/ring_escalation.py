@@ -109,6 +109,9 @@ class RingEscalationService:
                     {"step": "exhausted"}
                 )
 
+            # Guarantee order: flush/persist and COMMIT donor_matches transaction before notification
+            session.commit()
+
         # ── Dispatch Notifications Outside DB Context ────────────
         if matches_to_notify and request_dict:
             from app.services.notification_service import notification_service

@@ -190,6 +190,6 @@ class NotificationRecordDB(Base):
     title = Column(String(255), nullable=False)
     body = Column(Text, nullable=False)
     request_id = Column(String(64), ForeignKey("emergency_requests.id"), nullable=True)
-    match_id = Column(String(64), ForeignKey("donor_matches.id"), nullable=True)
+    match_id = Column(String(128), ForeignKey("donor_matches.match_id"), nullable=True)
     status = Column(String(50), default="SENT")
     created_at = Column(DateTime, default=utc_now)

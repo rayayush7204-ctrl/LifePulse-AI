@@ -325,6 +325,9 @@ class MatchingEngine:
                     "score": donor["match_score"],
                     "reasons": [f"Ring {ring} assignment", f"Distance {donor['calculated_distance']:.2f} km"]
                 })
+            
+            # Guarantee order: flush/persist and COMMIT donor_matches transaction
+            session.commit()
 
         # Broadcast final progress before ring
         await EmergencyStateMachine.broadcast_progress_event(
