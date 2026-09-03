@@ -63,6 +63,9 @@ const PHASE_CONFIG = {
 const ArrivalOverlay = React.memo(function ArrivalOverlay({
   requestState,
   acceptedDonor,
+  onStartDonation,
+  onCompleteDonation,
+  isActionLoading,
 }) {
   const config = useMemo(() => PHASE_CONFIG[requestState], [requestState]);
   const visible = !!config;
@@ -147,6 +150,37 @@ const ArrivalOverlay = React.memo(function ArrivalOverlay({
                 </div>
                 {requestState === 'DONATION_COMPLETED' && (
                   <Shield className="w-5 h-5 text-emerald-400 ml-auto shrink-0" />
+                )}
+              </motion.div>
+            )}
+
+            {/* Action Buttons (Only shown for Donor) */}
+            {(onStartDonation || onCompleteDonation) && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="w-full mt-2 pointer-events-auto"
+              >
+                {requestState === 'ARRIVED' && onStartDonation && (
+                  <button
+                    onClick={onStartDonation}
+                    disabled={isActionLoading}
+                    className="w-full py-4 rounded-2xl bg-white text-black font-black text-sm uppercase tracking-wider
+                               hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50"
+                  >
+                    {isActionLoading ? 'Starting...' : 'Start Donation'}
+                  </button>
+                )}
+                {requestState === 'DONATION_STARTED' && onCompleteDonation && (
+                  <button
+                    onClick={onCompleteDonation}
+                    disabled={isActionLoading}
+                    className="w-full py-4 rounded-2xl bg-white text-black font-black text-sm uppercase tracking-wider
+                               hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50"
+                  >
+                    {isActionLoading ? 'Completing...' : 'Complete Donation'}
+                  </button>
                 )}
               </motion.div>
             )}

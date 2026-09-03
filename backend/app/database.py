@@ -475,6 +475,29 @@ class DatabaseRepository:
             res.append(d)
         return res
 
+    # --- DONATION LIFECYCLE ---
+    def record_completed_donation(self, donor_id: str, request_id: str, hospital_name: str, units_donated: int = 1) -> Dict[str, Any]:
+        """
+        Records a completed donation and updates the donor's last_donation_date.
+        """
+        donation = DonationHistoryDB(
+            donor_id=donor_id,
+            request_id=request_id,
+            donation_date=datetime.now(timezone.utc).date(),
+            units_donated=units_donated,
+            hospital_name=hospital_name,
+            status="COMPLETED"
+        )
+        self.session.add(donation)
+        
+        donor = self.session.query(DonorProfileDB).filter(DonorProfileDB.id == donor_id).first()
+        if donor:
+            donor.last_donation_date = datetime.now(timezone.utc).date()
+            
+        self.session.commit()
+        self.session.refresh(donation)
+        return row_to_dict(donation)
+
     # --- TIMELINE OPERATIONS ---
     def _log_audit_event(self, action: str, entity_type: str, entity_id: str, details: Dict[str, Any], user_id: Optional[str] = None):
         """Internal helper to synchronously log an audit event during another transaction."""

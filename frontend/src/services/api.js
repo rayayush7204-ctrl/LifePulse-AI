@@ -100,6 +100,35 @@ export async function respondDonorAction(matchId, action, etaMinutes = null, lat
   }
 }
 
+export async function startDonation(donorId, requestId) {
+  try {
+    const res = await fetch(`${API_BASE}/donors/${donorId}/emergency/${requestId}/start-donation`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+    const errData = await res.json().catch(() => ({ detail: 'Failed to start donation' }));
+    throw new Error(errData.detail || 'Failed to start donation');
+  } catch (err) {
+    console.error("[API] startDonation error:", err);
+    throw err;
+  }
+}
+
+export async function completeDonation(donorId, requestId) {
+  try {
+    const res = await fetch(`${API_BASE}/donors/${donorId}/emergency/${requestId}/complete-donation`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+    const errData = await res.json().catch(() => ({ detail: 'Failed to complete donation' }));
+    throw new Error(errData.detail || 'Failed to complete donation');
+  } catch (err) {
+    console.error("[API] completeDonation error:", err);
+    throw err;
+  }
+}
 
 export function parseVoiceTranscriptClientSide(text) {
   const clean = (text || '').trim();

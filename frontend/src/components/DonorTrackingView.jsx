@@ -25,7 +25,7 @@ import {
 import useTrackingSession from '../hooks/useTrackingSession';
 import TrackingMap from './tracking/TrackingMap';
 import ArrivalOverlay from './tracking/ArrivalOverlay';
-import { updateDonorLocation } from '../services/api';
+import { updateDonorLocation, startDonation, completeDonation } from '../services/api';
 
 // ── ETA formatter ──────────────────────────────────────────────────────────
 const formatEta = (seconds) => {
@@ -289,6 +289,34 @@ export default function DonorTrackingView({
     };
   }, [isTracking, requestDetails?.id, acceptedDonor?.donor_id, requestDetails?.donor_id]);
 
+  const [isActionLoading, setIsActionLoading] = useState(false);
+
+  const handleStartDonation = async () => {
+    try {
+      setIsActionLoading(true);
+      const donorId = acceptedDonor?.donor_id || requestDetails?.donor_id;
+      await startDonation(donorId, requestDetails.id);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to start donation');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleCompleteDonation = async () => {
+    try {
+      setIsActionLoading(true);
+      const donorId = acceptedDonor?.donor_id || requestDetails?.donor_id;
+      await completeDonation(donorId, requestDetails.id);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to complete donation');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   // Status info
   const statusInfo = useMemo(() => getStatusInfo(requestState), [requestState]);
   const etaDisplay = useMemo(() => formatEta(etaSeconds), [etaSeconds]);
@@ -366,6 +394,9 @@ export default function DonorTrackingView({
       <ArrivalOverlay
         requestState={showArrivalOverlay ? requestState : null}
         acceptedDonor={acceptedDonor}
+        onStartDonation={handleStartDonation}
+        onCompleteDonation={handleCompleteDonation}
+        isActionLoading={isActionLoading}
       />
 
       {/* ── COMPLETED OVERLAY ───────────────────────────────────────── */}

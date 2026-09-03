@@ -6,19 +6,16 @@ from app.database import SessionLocal, DatabaseRepository
 from sqlalchemy import text
 from app.services.emergency_state_machine import EmergencyState
 
-TEST_DONOR_USER = {
-    "email": "donorwithdraw@example.com",
-    "password": "securepassword123",
-    "full_name": "Withdraw Tester",
-    "mobile_number": "+14155550011"
-}
+import uuid
 
-TEST_OTHER_USER = {
-    "email": "otherdonor@example.com",
-    "password": "securepassword123",
-    "full_name": "Other Donor Tester",
-    "mobile_number": "+14155550012"
-}
+def generate_test_user():
+    uid = str(uuid.uuid4())[:8]
+    return {
+        "email": f"user_{uid}@example.com",
+        "password": "securepassword123",
+        "full_name": f"Tester {uid}",
+        "mobile_number": f"+1{uuid.uuid4().int % 10000000000:010d}"
+    }
 
 async def _get_auth_headers(ac: AsyncClient, user_data: dict) -> dict:
     reg_resp = await ac.post("/api/v1/auth/signup", json=user_data)
@@ -44,10 +41,10 @@ async def _create_active_request(ac: AsyncClient, headers: dict) -> str:
     assert response.status_code == 200
     return response.json()["request"]["id"]
 
-async def _setup_donor(ac: AsyncClient, headers: dict) -> str:
+async def _setup_donor(ac: AsyncClient, headers: dict, phone: str) -> str:
     payload = {
         "name": "Withdraw Tester",
-        "phone": "+14155550011",
+        "phone": phone,
         "blood_type": "O-",
         "latitude": 37.7749,
         "longitude": -122.4194,
@@ -82,9 +79,10 @@ def _create_match_in_db(req_id: str, donor_id: str, status: str = "ACCEPTED") ->
 async def test_successful_withdrawal():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = await _get_auth_headers(ac, TEST_DONOR_USER)
+        donor_user = generate_test_user()
+        headers = await _get_auth_headers(ac, donor_user)
         req_id = await _create_active_request(ac, headers)
-        donor_id = await _setup_donor(ac, headers)
+        donor_id = await _setup_donor(ac, headers, donor_user["mobile_number"])
         
         match_id = _create_match_in_db(req_id, donor_id, "ACCEPTED")
 
@@ -111,11 +109,13 @@ async def test_successful_withdrawal():
 async def test_unauthorized_withdrawal():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = await _get_auth_headers(ac, TEST_DONOR_USER)
-        other_headers = await _get_auth_headers(ac, TEST_OTHER_USER)
+        donor_user = generate_test_user()
+        other_user = generate_test_user()
+        headers = await _get_auth_headers(ac, donor_user)
+        other_headers = await _get_auth_headers(ac, other_user)
         req_id = await _create_active_request(ac, headers)
-        donor_id = await _setup_donor(ac, headers)
-        await _setup_donor(ac, other_headers)
+        donor_id = await _setup_donor(ac, headers, donor_user["mobile_number"])
+        await _setup_donor(ac, other_headers, other_user["mobile_number"])
         
         match_id = _create_match_in_db(req_id, donor_id, "ACCEPTED")
 
@@ -127,9 +127,10 @@ async def test_unauthorized_withdrawal():
 async def test_invalid_state_withdrawal():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        headers = await _get_auth_headers(ac, TEST_DONOR_USER)
+        donor_user = generate_test_user()
+        headers = await _get_auth_headers(ac, donor_user)
         req_id = await _create_active_request(ac, headers)
-        donor_id = await _setup_donor(ac, headers)
+        donor_id = await _setup_donor(ac, headers, donor_user["mobile_number"])
         
         match_id = _create_match_in_db(req_id, donor_id, "DONATION_STARTED")
 

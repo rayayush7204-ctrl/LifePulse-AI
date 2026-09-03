@@ -325,3 +325,89 @@ async def withdraw_donor(match_id: str, current_user: Dict[str, Any] = Depends(g
         "new_status": "WITHDRAWN",
         "message": "Successfully withdrawn from emergency request."
     }
+
+@router.post("/{donor_id}/emergency/{request_id}/start-donation")
+async def start_donation(
+    donor_id: str,
+    request_id: str,
+    repo: DatabaseRepository = Depends(get_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user_required)
+):
+    """
+    Transitions an emergency to DONATION_STARTED once the donor is at the hospital.
+    Only the authenticated, accepted donor can trigger this.
+    """
+    donor = repo.get_donor(donor_id)
+    if not donor or donor.get("user_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to act on behalf of this donor profile.")
+        
+    matches = repo.get_matches_for_request(request_id)
+    accepted_match = next((m for m in matches if m["donor_id"] == donor_id and m["status"] in ("ACCEPTED", "EN_ROUTE", "ARRIVED")), None)
+    
+    if not accepted_match:
+        raise HTTPException(status_code=403, detail="You are not the active accepted donor for this emergency.")
+        
+    req = repo.get_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Emergency request not found.")
+        
+    if req.get("status") != EmergencyState.ARRIVED.value:
+        raise HTTPException(status_code=409, detail=f"Cannot start donation from state {req.get('status')}. Must be ARRIVED.")
+        
+    await EmergencyStateMachine.transition(
+        request_id,
+        EmergencyState.DONATION_STARTED,
+        "Donor has started the donation procedure.",
+        {"match_id": accepted_match["match_id"], "donor_id": donor_id}
+    )
+    
+    return {"message": "Donation started successfully"}
+
+@router.post("/{donor_id}/emergency/{request_id}/complete-donation")
+async def complete_donation(
+    donor_id: str,
+    request_id: str,
+    repo: DatabaseRepository = Depends(get_repository),
+    current_user: Dict[str, Any] = Depends(get_current_user_required)
+):
+    """
+    Marks a donation as completed. Updates the donor's donation history and eligibility,
+    then transitions the emergency to DONATION_COMPLETED and subsequently CLOSED.
+    """
+    donor = repo.get_donor(donor_id)
+    if not donor or donor.get("user_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to act on behalf of this donor profile.")
+        
+    matches = repo.get_matches_for_request(request_id)
+    accepted_match = next((m for m in matches if m["donor_id"] == donor_id and m["status"] in ("ACCEPTED", "EN_ROUTE", "ARRIVED", "DONATION_STARTED")), None)
+    
+    if not accepted_match:
+        raise HTTPException(status_code=403, detail="You are not the active accepted donor for this emergency.")
+        
+    req = repo.get_request(request_id)
+    if not req:
+        raise HTTPException(status_code=404, detail="Emergency request not found.")
+        
+    if req.get("status") != EmergencyState.DONATION_STARTED.value:
+        raise HTTPException(status_code=409, detail=f"Cannot complete donation from state {req.get('status')}. Must be DONATION_STARTED.")
+        
+    # Record history and update eligibility
+    hospital_name = req.get("location_name") or "Hospital"
+    repo.record_completed_donation(donor_id, request_id, hospital_name, req.get("units_needed", 1))
+    
+    # State transitions
+    await EmergencyStateMachine.transition(
+        request_id,
+        EmergencyState.DONATION_COMPLETED,
+        "Donation completed successfully.",
+        {"match_id": accepted_match["match_id"], "donor_id": donor_id}
+    )
+    
+    await EmergencyStateMachine.transition(
+        request_id,
+        EmergencyState.CLOSED,
+        "Emergency request closed due to successful donation.",
+        {"match_id": accepted_match["match_id"], "donor_id": donor_id}
+    )
+    
+    return {"message": "Donation completed successfully"}
