@@ -69,7 +69,13 @@ class NotificationService:
             "blood_type": str(request.get("blood_type")),
             "location": str(request.get("location_name")),
             "urgency": str(request.get("urgency_level")),
-            "type": "EMERGENCY_REQUEST"
+            "type": "EMERGENCY_REQUEST",
+            "location_name": str(request.get("location_name")),
+            "location_address": str(request.get("location_address")),
+            "latitude": str(request.get("latitude")),
+            "longitude": str(request.get("longitude")),
+            "units": str(request.get("units_needed")),
+            "urgency_level": str(request.get("urgency_level"))
         }
         
         payload = {

@@ -298,6 +298,12 @@ export default function DonorTrackingView({
   const showCompleted = isClosed;
   const showArrivalOverlay = isArrived || isDonationPhase;
 
+  const hasValidLocation = hospitalLoc && 
+                           hospitalLoc[0] != null && 
+                           hospitalLoc[1] != null && 
+                           !isNaN(parseFloat(hospitalLoc[0])) && 
+                           !isNaN(parseFloat(hospitalLoc[1]));
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#050505] flex flex-col">
       {/* ── TOP BAR ─────────────────────────────────────────────────── */}
@@ -325,21 +331,31 @@ export default function DonorTrackingView({
 
       {/* ── MAP (full-bleed) ────────────────────────────────────────── */}
       <div className="flex-1 relative">
-        <TrackingMap
-          hospitalLoc={hospitalLoc}
-          donorLocation={donorLocation}
-          initialDonorPos={initialDonorPos}
-          routeHistory={routeHistory}
-          nearbyMarkers={[]}
-          isSearching={false}
-          isTracking={isTracking}
-          isDonorAccepted={true}
-          requestState={requestState}
-          acceptedDonor={acceptedDonor}
-          etaSeconds={etaSeconds}
-          distance={distance}
-          hospitalName={requestDetails?.hospital_name}
-        />
+        {hasValidLocation ? (
+          <TrackingMap
+            hospitalLoc={hospitalLoc}
+            donorLocation={donorLocation}
+            initialDonorPos={initialDonorPos}
+            routeHistory={routeHistory}
+            nearbyMarkers={[]}
+            isSearching={false}
+            isTracking={isTracking}
+            isDonorAccepted={true}
+            requestState={requestState}
+            acceptedDonor={acceptedDonor}
+            etaSeconds={etaSeconds}
+            distance={distance}
+            hospitalName={requestDetails?.hospital_name}
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#111] z-[1]">
+            <div className="text-center p-6 border border-white/10 rounded-2xl bg-white/5 backdrop-blur-md max-w-[280px]">
+              <MapPin className="w-10 h-10 text-white/20 mx-auto mb-3" />
+              <h3 className="text-white font-bold text-sm mb-1">Location Unavailable</h3>
+              <p className="text-xs text-white/50 leading-relaxed">Map coordinates are temporarily unavailable. We are trying to reconnect.</p>
+            </div>
+          </div>
+        )}
 
         {/* Map gradient overlays */}
         <div className="absolute top-0 left-0 right-0 h-28 bg-gradient-to-b from-[#050505] to-transparent pointer-events-none z-[5]" />
